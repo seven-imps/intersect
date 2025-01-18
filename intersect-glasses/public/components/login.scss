@@ -1,0 +1,18 @@
+.login-or-new-divider {
+    text-align: center;
+    margin-bottom: 1rem;
+
+    // TODO: somehow these dashes are breaking
+    // the ui for release builds. no clue how
+    // cursed
+    
+    // &::after {
+    //     // nbsp mdash
+    //     content: "\00a0\2014";
+    // }
+    
+    // &::before {
+    //     // mdash nbsp
+    //     content: "\2014\00a0"; 
+    // }
+}

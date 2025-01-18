@@ -1,0 +1,72 @@
+@use '../variables' as *;
+
+#modal-root {
+
+}
+
+.modal-dialog {
+    // center
+    // position: fixed;
+    // top: 50%;
+    // left: 50%;
+    // transform: translate(-50%, -50%);
+    margin: auto;
+
+    box-shadow: 0px 0px 0.25rem var(--primary-hard), inset 0px 0px 0.25rem var(--primary-hard);
+    border: 1px solid var(--primary-hard);
+
+    background-color: var(--background-soft);
+    color: var(--foreground);
+
+    // pretty backdrop
+    &::backdrop {
+        backdrop-filter: blur(3px);
+        background-color: var(--background-transparent);
+    }
+}
+
+.modal-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 36rem;
+}
+
+.modal-header {
+    width: 100%;
+    margin-bottom: 1rem;
+    display: grid;
+    grid-template-columns: 1.5rem 1fr 1.5rem;
+    gap: 1rem;
+    justify-items: center;
+    align-items: center;
+}
+
+.modal-title {
+    grid-column: 2;
+    text-align: center;
+    font-size: 1rem;
+}
+
+.modal-close-x {
+    grid-column: 3;
+    justify-self: end;
+
+    svg {
+        height: 1.5rem;
+        width: 1.5rem;
+    }
+}
+
+.modal-content {
+    &> :last-child {
+        margin-bottom: 0;
+    }
+}
+
+button.modal-close {
+    margin-top: 2rem;
+    margin-bottom: 0;
+    // de-emphasise the close button a bit
+    background-color: #0000;
+}

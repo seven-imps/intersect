@@ -1,0 +1,5 @@
+[build]
+minify = "on_release" # can be one of: never, on_release, always
+
+[tools]
+wasm_opt = "version_119"

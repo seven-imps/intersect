@@ -1,0 +1,60 @@
+@use '../variables' as *;
+
+.status {
+    &>p {
+        // margin: -0.5rem -0.5rem 1.5rem;
+        // padding: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    position: absolute;
+    top: 0;
+    left: 50%;
+    width: 100%;
+    margin-top: 50vh;
+    transform: translate(-50%, -50%);
+
+    z-index: 12;
+    max-width: 18rem;
+    padding: 1rem;
+    background-color: var(--background-soft);
+    border: 1px solid var(--primary-hard);
+    box-shadow: 0px 0px 0.25rem var(--primary-hard),
+    inset 0px 0px 0.25rem var(--primary-hard);
+
+    &[aria-expanded="false"] {
+        display: none;
+    }
+    
+}
+
+.status[aria-expanded="false"]+.status-backdrop {
+    display: none;
+}
+
+.status-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 11;
+    backdrop-filter: blur(3px);
+    background-color: var(--background-transparent);
+}
+
+.status-text {
+    // background-color: var(--primary-harder);
+    color: var(--primary-hard);
+    text-shadow: 0px 0px 0.25rem var(--primary-hard);
+}
+
+.status-error-text {
+    // color: var(--error-transparent);
+    color: var(--error);
+    text-shadow: 0px 0px 0.25rem var(--error-transparent);
+}
+
+.status-hide {
+    display: none;
+}

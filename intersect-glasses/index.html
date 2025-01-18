@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- TODO: don't allow any external requests, to ensure anonimity -->
+  <!-- potentially make the document an iframe with a more restricted context instead of blocking everyting and needing a thousand exceptions -->
+  <!-- <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; style-src-elem fonts.googleapis.com 'unsafe-inline'; font-src fonts.gstatic.com; script-src-elem 'self' 'unsafe-inline'; script-src 'wasm-unsafe-eval' 'unsafe-eval';" 
+  /> -->
+
+  <title>[intersect]</title>
+
+  <!-- external resources -->
+  <link rel="preconnect" href="https://fonts.gstatic.com" />
+  <link 
+    rel="preload" as="style"
+    href="https://fonts.googleapis.com/css2?family=Fira+Mono:wght@400;500;700&family=Montserrat:ital,wght@0,100..900;1,100..900" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fira+Mono:wght@400;500;700&family=Montserrat:ital,wght@0,100..900;1,100..900"
+    rel="stylesheet">
+  <!-- <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Symbols+2&family=Noto+Sans+Symbols:wght@100..900&display=swap" rel="stylesheet"> -->
+
+  <!-- styling -->
+  <link data-trunk rel="scss" data-inline href="public/main.scss" />
+  <!-- <link data-trunk rel="icon" href="public/favicon.ico" /> -->
+  
+  <!-- code -->
+  <link data-trunk rel="rust" data-weak-refs />
+
+  
+</head>
+
+<body></body>
+
+</html>

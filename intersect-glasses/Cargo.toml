@@ -1,0 +1,39 @@
+[package]
+name = "intersect-glasses"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+intersect-core = { path = "../intersect-core", features = ["rt-wasm"], default-features = false }
+leptos = { git = "https://github.com/leptos-rs/leptos.git", branch = "leptos_0.6", features = ["csr"] }
+leptos_meta = { git = "https://github.com/leptos-rs/leptos.git", branch = "leptos_0.6", features = ["csr"] }
+leptos_router = { git = "https://github.com/leptos-rs/leptos.git", branch = "leptos_0.6", features = ["csr"] }
+leptos-use = { version = "0.13.6", features = ["use_cookie"] }
+codee = "0.2.0"
+console_log = "1"
+log = "0.4"
+console_error_panic_hook = "0.1"
+thiserror = "1.0.61"
+comrak = { version = "0.29.0", features = ["shortcodes"] }
+futures = "0.3.30"
+anyhow = "1.0.86"
+lazy-regex = "3.1.0"
+phosphor-leptos = "0.6.0"
+
+[patch.crates-io]
+# make the leptos git version play nice with phosphor-leptos
+leptos = { git = "https://github.com/leptos-rs/leptos.git", branch = "leptos_0.6" }
+
+[dev-dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-test = "0.3"
+web-sys = { version = "0.3", features = ["Document", "Window"] }
+
+[profile.release]
+opt-level = 'z'
+lto = true
+codegen-units = 1
+# panic = "abort"
+
+[package.metadata.leptos]
+lib-profile-release = "wasm-release"

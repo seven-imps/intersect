@@ -1,0 +1,51 @@
+.links-list {
+    margin-bottom: 1.5rem;
+
+    padding-left: 2rem;
+    list-style: none;
+
+    li {
+        position: relative;
+        margin-bottom: 0.5rem;
+
+        &>::before {
+            content: '-';
+            text-align: center;
+
+            position: absolute;
+            left: 0;
+            width: 1rem;
+            padding: 0.25rem 0;
+            margin-left: -2rem;
+        }
+    }
+}
+
+.links-li {
+    display: flex;
+    align-items: center;
+}
+
+button.links-remove {
+    width: 1em;
+    height: 1em;
+    margin-bottom: 0;
+    margin-left: 0.5em;
+    align-self: center;
+
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+}
+
+.links-link {
+    flex-grow: 1;
+
+    padding: 0.25rem;
+    margin-left: -0.25rem;
+}
+
+button.links-add-button {
+    margin-bottom: 0;
+}

@@ -1,0 +1,17 @@
+.selectable {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 0.5rem;
+
+    .selectable-label {
+        margin-bottom: 0.25em;
+    }
+
+    .selectable-text {
+        user-select: all;
+        overflow-wrap: anywhere;
+        // background-color: #b07ce422;
+        background-color: var(--primary-harder);
+        padding: 0.5rem;
+    }
+}

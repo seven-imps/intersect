@@ -1,0 +1,16 @@
+.share-trace {
+    display: flex;
+    flex-direction: column;
+
+    label {
+        margin-bottom: 0.25em;
+    }
+
+    #share-trace-clickable {
+        margin-bottom: 1rem;
+    }
+
+    .link {
+        align-self: center;
+    }
+}

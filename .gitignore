@@ -1,0 +1,11 @@
+target/
+debug/
+.vscode/
+
+.veilid/
+ 
+*.isec
+
+perf.data
+perf.data.old
+profile.json

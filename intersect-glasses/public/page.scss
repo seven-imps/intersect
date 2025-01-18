@@ -1,0 +1,318 @@
+@use 'variables' as *;
+
+html {
+    font-size: 16px;
+}
+
+body {
+    /* make it full height */
+    min-height: 100vh;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+
+    max-width: var(--main-width);
+    margin: auto;
+    padding: 0 0.5rem;
+
+    font-family: $main-font;
+
+    background-color: var(--background);
+    color: var(--foreground);
+}
+
+@media (min-width: $breakpoint-m) {
+    body {
+        // font-size: 125%;
+        font-size: 18px;
+        padding: 0 1.5rem;
+    }
+}
+
+p {
+    margin-bottom: 0.5em;
+}
+
+@mixin primary-outline {
+    outline: 1px solid var(--primary);
+    box-shadow: 0 0 .25rem var(--primary-hard), inset 0 0 .25rem var(--primary-hard);
+}
+
+// anything we tab target to will get our pretty outline
+*:focus-visible {
+    @include primary-outline;
+}
+
+a {
+    color: var(--primary-softer);
+    text-shadow: 0px 0px 0.25rem var(--primary-hard);
+
+    // is this evil?
+    // i do have lots of other indications, but still...
+    text-decoration: none;
+
+    // to make the border breathe a bit more
+    padding: 0.25rem;
+    margin: -0.25rem;
+
+    &:hover,
+    &:active {
+        @include primary-outline;
+        background-color: var(--primary-harder);
+        // make the text color full foreground again
+        // to make up for the contrast loss from the background color
+        color: var(--foreground);
+    }
+}
+
+button:not(.button-icon) {
+    padding: 0.25rem;
+    margin-bottom: 1em;
+    box-shadow: 0px 0px 0.25rem var(--primary-hard), inset 0px 0px 0.25rem var(--primary-hard);
+    border: 1px solid var(--primary-hard);
+    background-color: var(--primary-harder);
+    color: var(--foreground);
+    width: 100%;
+
+    &:hover, &:active {
+        @include primary-outline;
+    }
+}
+
+button.button-icon {
+    padding: 0;
+    border: none;
+    background-color: transparent;
+
+    svg {
+        fill: var(--primary-hard);
+        filter: drop-shadow(0px 0px 0.125rem var(--primary-harder));
+    }
+
+    &:hover, &:active {
+        svg {
+            fill: var(--primary);
+            filter: drop-shadow(0px 0px 0.125rem var(--primary-hard));
+        }
+    }
+}
+
+#header {
+    position: relative;
+
+    width: 100%;
+    height: 4rem;
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    // flex-wrap: wrap;
+
+    font-family: $monospace-font;
+
+    a {
+        display: inline-block;
+        text-wrap: nowrap;
+    }
+
+    &>h1 {
+        font-size: 1.5rem;
+
+        &>a {
+            text-shadow: 0px 0px 0.5rem var(--primary-hard);
+            text-decoration: none;
+            color: var(--foreground);
+
+            // remove brackets
+            &::before {
+                content: none;
+            }
+
+            &::after {
+                content: none;
+            }
+        }
+    }
+
+
+
+    &>nav {
+        margin-left: auto;
+    }
+}
+
+// don't show the actual input element
+#hamburger-input {
+    display: none;
+}
+
+// basic styling for the nav list
+#hamburger-input~ul {
+    list-style: none;
+    // padding: 1rem;
+    padding: 0;
+    display: flex;
+    gap: 1rem;
+}
+
+#hamburger {
+    display: block;
+    height: 2rem;
+    padding: 0.25rem 0;
+
+    &>span {
+        display: block;
+        top: 0;
+        width: 2rem;
+        height: 4px;
+        margin-bottom: 6px;
+        position: relative;
+        z-index: 10;
+        background: var(--primary-hard);
+        box-shadow: 0px 0px 0.25rem var(--primary-hard), inset 0px 0px 0.25rem var(--primary-hard);
+        transition:
+            transform 0.15s ease-in,
+            opacity 0.15s ease-out 0.15s,
+            top 0.15s ease-out 0.15s;
+    }
+
+    &>span:last-child {
+        margin-bottom: 0;
+    }
+
+    &:hover, &:active {
+        &>span {
+            background: var(--primary);
+        }
+    }
+}
+
+// for small screens, style our hamburger menu
+@media (max-width: $breakpoint-m) {
+
+    // hide the nav list if we haven't opened the menu
+    #hamburger-input:not(:checked)~ul {
+        display: none;
+    }
+
+    // if the menu _is_ open, render a fullscreen backdrop 
+    // to catch any clicks outside the menu and close it
+    #hamburger-input:checked~label::before {
+        content: '';
+        display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        // compensate for the window edge,
+        // since we're relative to the nav here
+        margin-left: -0.5rem;
+        z-index: 9;
+
+        backdrop-filter: blur(3px);
+        background-color: var(--background-transparent);
+    }
+
+    #hamburger-input:checked~label {
+        &>span {
+            // flip around transition steps
+            transition:
+                top 0.15s ease-in,
+                opacity 0.15s ease-out,
+                transform 0.15s ease-out 0.15s;
+        }
+
+        &>span:nth-child(1) {
+            top: 10px;
+            transform: rotate(-45deg);
+        }
+
+        &>span:nth-child(2) {
+            opacity: 0;
+        }
+
+        &>span:nth-child(3) {
+            top: -10px;
+            transform: rotate(45deg);
+        }
+    }
+
+    #hamburger-input~ul {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 100%;
+        z-index: 10;
+        padding: 1rem;
+        margin-top: 4rem;
+        // margin-top: 50vh;
+        // transform: translate(0%,-50%);
+
+        flex-direction: column;
+        align-items: center;
+
+        background-color: var(--background-soft);
+        border: 1px solid var(--primary-hard);
+        box-shadow: 0px 0px 0.25rem var(--primary-hard), inset 0px 0px 0.25rem var(--primary-hard);
+
+        // make the links full width
+        &>li {
+            width: 100%;
+
+            &>a {
+                width: 100%;
+                text-align: center;
+                margin: 0;
+            }
+        }
+    }
+}
+
+// hide on bigger screens
+@media (min-width: $breakpoint-m) {
+    #hamburger {
+        display: none;
+    }
+}
+
+#main {
+    display: flex;
+    flex-direction: column;
+
+    width: 100%;
+    flex-grow: 1;
+
+    // margin: 1.5rem 0;
+    padding: 1.5rem;
+
+    /* set as anchor */
+    position: relative;
+    background-color: var(--background-soft);
+
+    // border-radius: 0.25rem;
+    box-shadow: 0px 0px 0.25rem var(--primary-hard), inset 0px 0px 0.25rem var(--primary-hard);
+    border: 1px solid var(--primary-hard);
+
+    &> :last-child {
+        margin-bottom: 0;
+    }
+}
+
+@media (min-width: $breakpoint-m) {
+    #header {
+        padding: 1rem 2rem;
+    }
+
+    #main {
+        padding: 2rem;
+    }
+}
+
+
+
+#footer {
+    opacity: 0.5;
+    padding: 1rem;
+}

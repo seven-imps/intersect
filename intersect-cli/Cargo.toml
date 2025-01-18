@@ -1,0 +1,22 @@
+[package]
+name = "intersect-cli"
+version = "0.1.0"
+edition = "2021"
+default-run = "intersect"
+
+[dependencies]
+intersect-core = { path = "../intersect-core", features = ["rt-tokio"] }
+clap = { version =  "4.5.3", features = ["derive"] }
+tokio = "1.35.1"
+shlex = "1.3.0"
+anyhow = "1.0.86"
+clap-repl = "0.2.0"
+reedline = "0.32.0"
+
+[[bin]]
+name = "intersect"           # The name of the target.
+path = "src/main.rs"    # The source file of the target.
+
+[[bin]]
+name = "isec"           # The name of the target.
+path = "src/main.rs"    # The source file of the target.

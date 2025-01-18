@@ -1,0 +1,36 @@
+@use 'variables' as *;
+
+
+
+.trace {
+    margin-bottom: 2rem;
+}
+
+.account-private-key {
+    margin-bottom: 1em;
+}
+
+
+.initialising {
+    color: var(--primary-hard);
+    text-shadow: 0px 0px 0.25rem var(--primary-hard);
+}
+
+.home-tagline {
+    text-align: center;
+    // font-size: 1.2rem;
+    // text-wrap: balance;
+    color: var(--primary-hard);
+    text-shadow: 0px 0px 0.25rem var(--primary-hard);
+}
+
+.home-about {
+    padding: 0.5rem;
+    margin-top: 1rem;
+}
+
+.home-warning {
+    // margin-top: 2rem;
+    font-style: italic;
+    // text-align: center;  
+}

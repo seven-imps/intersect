@@ -1,0 +1,12 @@
+@use '../variables' as *;
+
+.document-title {
+    font-family: $monospace-font;
+    text-align: center;
+    margin-bottom: 1em;
+}
+
+.document-divider {
+    box-shadow: 0px 0px 0.25rem var(--primary-hard), inset 0px 0px 0.25rem var(--primary-hard);
+    border-bottom: 1px solid var(--primary-hard);
+}
