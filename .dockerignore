@@ -1,11 +1,8 @@
 target/
 debug/
 .vscode/
+
 */target
 */dist
 
 .veilid/
-
-perf.data
-perf.data.old
-profile.json
