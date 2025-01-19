@@ -1,0 +1,5 @@
+services:
+  glasses:
+    build: .
+    ports:
+      - "8080:8080"
