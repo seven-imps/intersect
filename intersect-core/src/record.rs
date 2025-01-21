@@ -310,7 +310,8 @@ impl Record {
             0,
             count.to_be_bytes().to_vec(),
             Some(KeyPair::new(*self.shard.key(), *private_key.key())),
-        ).await
+        )
+        .await
         .map_err(|e| NetworkError::RecordWriteFailed(e))?;
 
         // and write all the chunks to subkeys 1..count
@@ -318,14 +319,15 @@ impl Record {
             // add the subkey index
             .enumerate()
             // and write out the values to the respective subkeys
-            .map(|(subkey, data)| async move { 
+            .map(|(subkey, data)| async move {
                 rc.set_dht_value(
                     *self.descriptor.key(),
                     // add one cause subkey zero stores the count
                     (subkey as u32) + 1,
                     data.to_vec(),
                     Some(KeyPair::new(*self.shard.key(), *private_key.key())),
-                ).await
+                )
+                .await
                 .map_err(|e| NetworkError::RecordWriteFailed(e))
             })
             .collect_vec();
@@ -340,17 +342,18 @@ impl Record {
         Ok(())
     }
 
-    pub async fn read_chunked(
-        &self,
-        force_refresh: bool,
-    ) -> Result<Encrypted, NetworkError> {
+    pub async fn read_chunked(&self, force_refresh: bool) -> Result<Encrypted, NetworkError> {
         // refresh all subkeys if desired
         if force_refresh {
             self.refresh().await?;
         }
 
         // read the count of used subkeys
-        let count_bytes = self.read_key_raw(0, false).await?.try_into().map_err(|_e| NetworkError::InvalidData)?;
+        let count_bytes = self
+            .read_key_raw(0, false)
+            .await?
+            .try_into()
+            .map_err(|_e| NetworkError::InvalidData)?;
         let count = u32::from_be_bytes(count_bytes);
 
         let futures = (1..=count)
@@ -371,9 +374,7 @@ impl Record {
             // and use this magical impl for Result to bubble it up
             .collect::<Result<Vec<_>, _>>()?;
 
-        let data = results.into_iter()
-            .map(|(_, chunk)| chunk)
-            .concat();
+        let data = results.into_iter().map(|(_, chunk)| chunk).concat();
         let encrypted = Encrypted::from_bytes(&data)?;
         log!("done reading chunked from: {}", self.descriptor.key());
         Ok(encrypted)

@@ -1,5 +1,8 @@
 use anyhow::{anyhow, Context};
-use intersect_core::{models::{IndexMetadata, Segment}, Identity, PrivateKey, RootDomain, Shard};
+use intersect_core::{
+    models::{IndexMetadata, Segment},
+    Identity, PrivateKey, RootDomain, Shard,
+};
 use leptos::*;
 use leptos_router::State;
 
@@ -68,10 +71,9 @@ pub fn LoginForm() -> impl IntoView {
     };
 
     let create_account_root = make_action!(move |identity: &Identity| {
-        let root_name = Segment::new("account").unwrap();
         let account_name = Segment::new("anonymous").unwrap();
         let meta = IndexMetadata::new(identity.shard(), &account_name);
-        let _index = RootDomain::create_public(&identity, &root_name, &meta)
+        let _index = RootDomain::create_public(&identity, &Segment::new("account").unwrap(), &meta)
             .await
             .expect("failed to create account root index");
     });

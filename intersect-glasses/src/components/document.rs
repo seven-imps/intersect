@@ -1,15 +1,16 @@
 use anyhow::{Context, Ok};
 use intersect_core::{
-    models::{IndexMetadata, UnlockedTrace},
-    IndexRecord,
+    log,
+    models::{IndexMetadata, Segment, Trace, UnlockedTrace},
+    IndexRecord, RecordType, RootDomain,
 };
 use leptos::*;
 use phosphor_leptos::{Icon, IconWeight};
 
 use crate::{
     components::{
-        empty_view, fragment::FragmentView, ActionLink, IfSome, IntersectEditLink, Links,
-        LinksAddModal, Modal, ShareTrace, StatusContext,
+        empty_view, fragment::FragmentView, ActionLink, IfSome, IntersectEditLink, IntersectLink,
+        Links, LinksAddModal, Modal, ShareTrace, StatusContext,
     },
     make_action,
     session::Session,
@@ -24,6 +25,9 @@ pub fn Document(
     let session = expect_context::<RwSignal<Session>>();
 
     let metadata_signal: RwSignal<Option<IndexMetadata>> = create_rw_signal(None);
+    let account_metadata_signal: RwSignal<Option<IndexMetadata>> = create_rw_signal(None);
+    let account_trace: RwSignal<Option<Trace<IndexRecord>>> = create_rw_signal(None);
+
     let is_owner = move || {
         metadata_signal
             .get()
@@ -36,16 +40,42 @@ pub fn Document(
         let meta = record.meta(force_refresh).await?;
         metadata_signal.set(Some(meta.clone()));
 
-        // read account root
-        // let account_root =
-        //     RootDomain::open_public(meta.shard(), &Segment::new("account").unwrap()).await;
-        // if let Result::Ok(account_root) = account_root {
-        //     let account_meta = account_root.meta(force_refresh).await?;
-        //     log!("account username: {}", account_meta.name());
-        // }
-
         Ok(meta)
     };
+
+    let fetch_account = move |meta: IndexMetadata, force_refresh: bool| async move {
+        // read account root
+        let account_root =
+            RootDomain::open_public(meta.shard(), &Segment::new("account").unwrap()).await?;
+
+        let account_meta = account_root.meta(force_refresh).await?;
+        account_metadata_signal.set(Some(account_meta.clone()));
+
+        let trace = account_root.to_trace(true);
+        account_trace.set(Some(trace));
+
+        log!("account username: {}", account_meta.name());
+        Ok(account_meta)
+    };
+
+    // TODO: this whole rube goldberg machine for updating account meta feels like it could be much simpler
+    let fetch_account_action = make_action!(move |meta: &IndexMetadata| {
+        // lazy
+        let _ = status_context
+            .run_async(|| fetch_account(meta.clone(), false), None)
+            .await;
+        // hard refresh
+        let _ = status_context
+            .run_async(|| fetch_account(meta.clone(), true), None)
+            .await;
+    });
+
+    let metadata_memo = create_memo(move |_| metadata_signal.get());
+    create_effect(move |_| {
+        if let Some(meta) = metadata_memo.get() {
+            fetch_account_action.dispatch(meta);
+        };
+    });
 
     // kick off the download
     spawn_local(async move {
@@ -80,15 +110,37 @@ pub fn Document(
     let show_link_edit = create_rw_signal(false);
     let show_link_add = create_rw_signal(false);
 
+    let account_link_view = move || {
+        if let Some(account_trace) = account_trace.get() {
+            // show account link if we're not already there
+            if account_trace.key() != trace.key() {
+                let name = account_metadata_signal
+                    .get()
+                    .map_or("anonymous".to_owned(), |meta| meta.name().to_string());
+                view! {
+                    <IntersectLink trace=account_trace text=name/>
+                }
+                .into_view()
+            // if we are looking at the account trace, indicate as such
+            } else {
+                view! { <p> "account home" </p> }.into_view()
+            }
+        // if there's no trace, indicate it's anonymous
+        } else {
+            view! { <p> "anonymous" </p> }.into_view()
+        }
+    };
+
     let header = move || {
         view! {
         <header>
             <div class="document-details">
                 <div class="document-details-left">
+                    { account_link_view }
                     // <IntersectLink link=todo!() text="username"/>
                     // <p> " — " </p>
                     // <p class="document-timestamp"> "2024/07/23" </p>
-                    <p class="document-timestamp"> "placeholder" </p>
+                    // <p class="document-timestamp"> "placeholder" </p>
                 </div>
 
                 <div class="document-details-right">

@@ -1,6 +1,8 @@
 use std::future::Future;
 
-use crate::models::{Access, Fragment, IndexMetadata, LinkEntry, Reference, Segment, Trace, UnlockedTrace};
+use crate::models::{
+    Access, Fragment, IndexMetadata, LinkEntry, Reference, Segment, Trace, UnlockedTrace,
+};
 use crate::record::Record;
 use crate::{veilid::get_crypto, FragmentRecord, Hash, IndexRecord, Secret, Shard};
 use crate::{Identity, IntersectError, VeilidRecordKey};
