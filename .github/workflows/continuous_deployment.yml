@@ -22,9 +22,12 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - run: trunk build --release
+      - name: build site
+        working-directory: ./intersect-glasses
+        run: trunk build --release
 
-      - uses: actions/upload-artifact@v4
+      - name: publish artifact
+        uses: actions/upload-artifact@v4
         with:
           name: intersect-glasses
           path: intersect-glasses/dist
