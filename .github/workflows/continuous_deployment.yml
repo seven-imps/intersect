@@ -1,0 +1,30 @@
+name: build static site artifact
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+
+      - uses: jetli/trunk-action@v0.5.0
+
+      - uses: actions/checkout@v4
+
+      - name: build site
+        working-directory: ./intersect-glasses
+        run: trunk build --release
+
+      - name: publish artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: intersect-glasses
+          path: intersect-glasses/dist
+          if-no-files-found: error
