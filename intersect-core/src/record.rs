@@ -8,13 +8,10 @@ use veilid_core::{
 
 use crate::{
     log,
-    models::{Encrypted, EncryptionError, Reference},
+    models::{Encrypted, EncryptionError},
     veilid::{get_routing_context, CRYPTO_KIND},
-    Domain, Hash, Identity, PrivateKey, Shard, VeilidRecordKey,
+    Hash, Identity, PrivateKey, Shard, VeilidRecordKey,
 };
-
-pub static MAX_SUBKEYS: ValueSubkey = 256;
-pub static SUBKEY_SIZE_BYTES: usize = 1024 * 1024 / MAX_SUBKEYS as usize;
 
 // don't cache anything here!
 // instead rely on the built in veilid local record store
@@ -25,6 +22,9 @@ pub struct Record {
 }
 
 impl Record {
+    pub const MAX_SUBKEYS: ValueSubkey = 256;
+    pub const SUBKEY_SIZE_BYTES: usize = 1024 * 1024 / Self::MAX_SUBKEYS as usize;
+
     pub async fn create(identity: &Identity, hash: &Hash) -> Result<Self, NetworkError> {
         let rc = get_routing_context().await;
         let schema = build_schema(hash);
@@ -57,7 +57,7 @@ impl Record {
             .into()
     }
 
-    pub async fn open_key(key: &VeilidRecordKey) -> Result<Self, NetworkError> {
+    pub async fn open(key: &VeilidRecordKey) -> Result<Self, NetworkError> {
         let rc = get_routing_context().await;
         let key = veilid_core::TypedKey::new(CRYPTO_KIND, key.into());
 
@@ -95,11 +95,6 @@ impl Record {
         })
     }
 
-    pub async fn open<D: Domain>(reference: &Reference<D>) -> Result<Self, NetworkError> {
-        let key = Self::build_key(reference.shard(), reference.hash()).await;
-        Self::open_key(&key).await
-    }
-
     pub fn record_key(&self) -> VeilidRecordKey {
         // TODO: consider not ignoring the version field :p
         self.descriptor.key().value.into()
@@ -113,58 +108,121 @@ impl Record {
         &self.hash
     }
 
-    async fn read_key_raw(
+    pub async fn read_raw(
         &self,
         subkey: ValueSubkey,
         force_refresh: bool,
-    ) -> Result<Vec<u8>, NetworkError> {
+    ) -> Result<Option<Vec<u8>>, NetworkError> {
         let rc = get_routing_context().await;
         log!("reading from: [{}] {}", subkey, self.descriptor.key());
         let value = rc
             .get_dht_value(*self.descriptor.key(), subkey, force_refresh)
             .await
-            .map_err(|e| NetworkError::RecordReadFailed(e))?
-            .ok_or(NetworkError::MissingData)?;
-        // deleted entries are empty
-        // so treat them the same as a missing value
-        if value.data_size() == 0 {
-            Err(NetworkError::MissingData)?
-        }
+            .map_err(|e| NetworkError::RecordReadFailed(e))?;
         log!("done reading from: [{}] {}", subkey, self.descriptor.key());
-        Ok(value.data().to_vec())
-    }
 
-    pub async fn read_key(
-        &self,
-        subkey: ValueSubkey,
-        force_refresh: bool,
-    ) -> Result<Encrypted, NetworkError> {
-        let rc = get_routing_context().await;
-        log!("reading from: [{}] {}", subkey, self.descriptor.key());
-        let value = rc
-            .get_dht_value(*self.descriptor.key(), subkey, force_refresh)
-            .await
-            .map_err(|e| NetworkError::RecordReadFailed(e))?
-            .ok_or(NetworkError::MissingData)?;
-        // deleted entries are empty
-        // so treat them the same as a missing value
-        if value.data_size() == 0 {
-            Err(NetworkError::MissingData)?
-        }
-        let data = Encrypted::from_bytes(value.data())?;
-        log!("done reading from: [{}] {}", subkey, self.descriptor.key());
+        let data = value
+            // deleted entries are empty
+            // so treat them the same as a missing value
+            .filter(|v| v.data_size() > 0)
+            .map(|v| v.data().to_vec());
         Ok(data)
     }
 
-    pub async fn is_unused(&self, subkey: ValueSubkey) -> Result<bool, NetworkError> {
-        let rc = get_routing_context().await;
-        log!("checking if empty: [{}] {}", subkey, self.descriptor.key());
-        let value = rc
-            .get_dht_value(*self.descriptor.key(), subkey, true)
-            .await
-            .map_err(|e| NetworkError::RecordReadFailed(e))?;
+    pub async fn read(
+        &self,
+        subkey: ValueSubkey,
+        force_refresh: bool,
+    ) -> Result<Option<Encrypted>, NetworkError> {
+        let data = self.read_raw(subkey, force_refresh).await?;
+        let encrypted = data.map(|data| Encrypted::from_bytes(&data)).transpose()?;
+        Ok(encrypted)
+    }
 
-        Ok(value.is_none())
+    pub async fn read_many_raw(
+        &self,
+        subkeys: impl IntoIterator<Item = ValueSubkey>,
+        force_refresh: bool,
+    ) -> Result<Vec<(ValueSubkey, Option<Vec<u8>>)>, NetworkError> {
+        let futures = subkeys
+            .into_iter()
+            .map(|subkey| async move { (subkey, self.read_raw(subkey, force_refresh).await) });
+
+        let results = join_all(futures)
+            .await
+            .into_iter()
+            // make sure it's sorted after joining
+            .sorted_by_key(|(i, _r)| *i)
+            // some janky rearranging so we can tease out the error
+            .map(|(i, r)| match r {
+                Ok(r) => Ok((i, r)),
+                Err(e) => Err(e),
+            })
+            // and use this magical impl for Result to bubble it up
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(results)
+    }
+
+    pub async fn write_raw(
+        &self,
+        data: Vec<u8>,
+        subkey: ValueSubkey,
+        private_key: &PrivateKey,
+    ) -> Result<(), NetworkError> {
+        let rc = get_routing_context().await;
+        log!("writing to: [{}] {}", subkey, self.descriptor.key());
+        rc.set_dht_value(
+            *self.descriptor.key(),
+            subkey,
+            data,
+            Some(KeyPair::new(*self.shard.key(), *private_key.key())),
+        )
+        .await
+        .map_err(|e| NetworkError::RecordWriteFailed(e))?;
+        log!("done writing to: [{}] {}", subkey, self.descriptor.key());
+        Ok(())
+    }
+
+    pub async fn write(
+        &self,
+        data: Encrypted,
+        subkey: ValueSubkey,
+        private_key: &PrivateKey,
+    ) -> Result<(), NetworkError> {
+        self.write_raw(data.to_bytes().to_vec(), subkey, private_key)
+            .await
+    }
+
+    pub async fn write_null(
+        &self,
+        subkey: ValueSubkey,
+        private_key: &PrivateKey,
+    ) -> Result<(), NetworkError> {
+        self.write_raw(vec![], subkey, private_key).await
+    }
+
+    pub async fn write_many_raw(
+        &self,
+        writes: impl IntoIterator<Item = (ValueSubkey, Vec<u8>)>,
+        private_key: &PrivateKey,
+    ) -> Result<(), NetworkError> {
+        let futures = writes
+            .into_iter()
+            .map(|(subkey, data)| async move { self.write_raw(data, subkey, private_key).await });
+
+        let _ = join_all(futures)
+            .await
+            .into_iter()
+            // and use this magical impl for Result to bubble it up
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(())
+    }
+
+    pub async fn is_unused(&self, subkey: ValueSubkey) -> Result<bool, NetworkError> {
+        log!("checking if empty: [{}] {}", subkey, self.descriptor.key());
+        Ok(self.read_raw(subkey, true).await?.is_none())
     }
 
     pub async fn find_unused(&self, force_refresh: bool) -> Result<Vec<ValueSubkey>, NetworkError> {
@@ -178,7 +236,7 @@ impl Record {
         let report = rc
             .inspect_dht_record(
                 *self.descriptor.key(),
-                ValueSubkeyRangeSet::single_range(0, MAX_SUBKEYS),
+                ValueSubkeyRangeSet::single_range(0, Self::MAX_SUBKEYS),
                 DHTReportScope::Local,
             )
             .await
@@ -203,7 +261,7 @@ impl Record {
     pub async fn read_all(
         &self,
         force_refresh: bool,
-    ) -> Result<Vec<(ValueSubkey, Encrypted)>, NetworkError> {
+    ) -> Result<Vec<(ValueSubkey, Option<Encrypted>)>, NetworkError> {
         // refresh all subkeys if desired
         if force_refresh {
             self.refresh().await?;
@@ -214,7 +272,7 @@ impl Record {
         let report = rc
             .inspect_dht_record(
                 *self.descriptor.key(),
-                ValueSubkeyRangeSet::single_range(0, MAX_SUBKEYS),
+                ValueSubkeyRangeSet::single_range(0, Self::MAX_SUBKEYS),
                 DHTReportScope::Local,
             )
             .await
@@ -228,7 +286,7 @@ impl Record {
             // only used subkeys
             .filter(|(_, seq)| **seq != ValueSubkey::MAX)
             // and read the subkey values
-            .map(|(i, _)| async move { (i as ValueSubkey, self.read_key(i as u32, false).await) })
+            .map(|(i, _)| async move { (i as ValueSubkey, self.read(i as u32, false).await) })
             .collect_vec();
 
         let results = join_all(futures)
@@ -253,140 +311,13 @@ impl Record {
         Ok(results)
     }
 
-    pub async fn write_key(
-        &self,
-        data: Encrypted,
-        subkey: ValueSubkey,
-        private_key: &PrivateKey,
-    ) -> Result<(), NetworkError> {
-        let rc = get_routing_context().await;
-        log!("writing to: [{}] {}", subkey, self.descriptor.key());
-        rc.set_dht_value(
-            *self.descriptor.key(),
-            subkey,
-            data.to_bytes().to_vec(),
-            Some(KeyPair::new(*self.shard.key(), *private_key.key())),
-        )
-        .await
-        .map_err(|e| NetworkError::RecordWriteFailed(e))?;
-        log!("done writing to: [{}] {}", subkey, self.descriptor.key());
-        Ok(())
-    }
-
-    pub async fn write_null(
-        &self,
-        subkey: ValueSubkey,
-        private_key: &PrivateKey,
-    ) -> Result<(), NetworkError> {
-        let rc = get_routing_context().await;
-        log!("writing null to: [{}] {}", subkey, self.descriptor.key());
-        rc.set_dht_value(
-            *self.descriptor.key(),
-            subkey,
-            vec![],
-            Some(KeyPair::new(*self.shard.key(), *private_key.key())),
-        )
-        .await
-        .map_err(|e| NetworkError::RecordWriteFailed(e))?;
-        log!("done writing to: [{}] {}", subkey, self.descriptor.key());
-        Ok(())
-    }
-
-    pub async fn write_chunked(
-        &self,
-        data: Encrypted,
-        private_key: &PrivateKey,
-    ) -> Result<(), NetworkError> {
-        log!("writing chunked data to: {}", self.descriptor.key());
-        // split data into chunks
-        let bytes = data.to_bytes();
-        let chunks = bytes.chunks(SUBKEY_SIZE_BYTES);
-        let rc = get_routing_context().await;
-
-        // write number of used chunks to subkey 0
-        let count: u32 = chunks.len() as u32;
-        rc.set_dht_value(
-            *self.descriptor.key(),
-            0,
-            count.to_be_bytes().to_vec(),
-            Some(KeyPair::new(*self.shard.key(), *private_key.key())),
-        )
-        .await
-        .map_err(|e| NetworkError::RecordWriteFailed(e))?;
-
-        // and write all the chunks to subkeys 1..count
-        let futures = chunks
-            // add the subkey index
-            .enumerate()
-            // and write out the values to the respective subkeys
-            .map(|(subkey, data)| async move {
-                rc.set_dht_value(
-                    *self.descriptor.key(),
-                    // add one cause subkey zero stores the count
-                    (subkey as u32) + 1,
-                    data.to_vec(),
-                    Some(KeyPair::new(*self.shard.key(), *private_key.key())),
-                )
-                .await
-                .map_err(|e| NetworkError::RecordWriteFailed(e))
-            })
-            .collect_vec();
-
-        let _ = join_all(futures)
-            .await
-            .into_iter()
-            // and use this magical impl for Result to bubble it up
-            .collect::<Result<Vec<_>, _>>()?;
-        log!("done writing chunked to: {}", self.descriptor.key());
-
-        Ok(())
-    }
-
-    pub async fn read_chunked(&self, force_refresh: bool) -> Result<Encrypted, NetworkError> {
-        // refresh all subkeys if desired
-        if force_refresh {
-            self.refresh().await?;
-        }
-
-        // read the count of used subkeys
-        let count_bytes = self
-            .read_key_raw(0, false)
-            .await?
-            .try_into()
-            .map_err(|_e| NetworkError::InvalidData)?;
-        let count = u32::from_be_bytes(count_bytes);
-
-        let futures = (1..=count)
-            // and read the subkey values
-            .map(|i| async move { (i as ValueSubkey, self.read_key_raw(i as u32, false).await) })
-            .collect_vec();
-
-        let results = join_all(futures)
-            .await
-            .into_iter()
-            // make sure it's sorted after joining
-            .sorted_by_key(|(i, _r)| *i)
-            // some janky rearranging so we can tease out the error
-            .map(|(i, r)| match r {
-                Ok(r) => Ok((i, r)),
-                Err(e) => Err(e),
-            })
-            // and use this magical impl for Result to bubble it up
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let data = results.into_iter().map(|(_, chunk)| chunk).concat();
-        let encrypted = Encrypted::from_bytes(&data)?;
-        log!("done reading chunked from: {}", self.descriptor.key());
-        Ok(encrypted)
-    }
-
     pub async fn refresh(&self) -> Result<(), NetworkError> {
         let rc = get_routing_context().await;
         log!("inspecting record: {}", self.descriptor.key());
         let report = rc
             .inspect_dht_record(
                 *self.descriptor.key(),
-                ValueSubkeyRangeSet::single_range(0, MAX_SUBKEYS),
+                ValueSubkeyRangeSet::single_range(0, Self::MAX_SUBKEYS),
                 DHTReportScope::UpdateGet,
             )
             .await
@@ -420,7 +351,7 @@ impl Record {
         let results = join_all(
             subkeys
                 .into_iter()
-                .map(|subkey| self.read_key(subkey as u32, true)),
+                .map(|subkey| self.read(subkey as u32, true)),
         )
         .await;
 
@@ -472,7 +403,7 @@ fn build_schema(hash: &Hash) -> DHTSchema {
     // thankfully they're conveniently the same size
 
     DHTSchema::smpl(
-        MAX_SUBKEYS as u16,
+        Record::MAX_SUBKEYS as u16,
         vec![
             // and unique identifier
             DHTSchemaSMPLMember {

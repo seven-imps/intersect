@@ -5,7 +5,9 @@ use binrw::binrw;
 use thiserror::Error;
 
 use crate::{
-    record::Record, Domain, DomainRecord, IntersectError, RecordType, Secret, VeilidRecordKey,rw_helpers::{BinReadAlloc, BinWriteAlloc}
+    record::Record,
+    rw_helpers::{BinReadAlloc, BinWriteAlloc},
+    Domain, DomainRecord, IntersectError, RecordType, Secret, VeilidRecordKey,
 };
 
 use super::Access;
@@ -64,7 +66,7 @@ impl<T: RecordType> Trace<T> {
             return Err(IntersectError::LockedTrace);
         };
 
-        let record = Record::open_key(&self.key).await?;
+        let record = Record::open(&self.key).await?;
         Ok(T::from_record(record, &secret).await?)
     }
 
@@ -75,7 +77,6 @@ impl<T: RecordType> Trace<T> {
     pub fn access(&self) -> &Access {
         &self.access
     }
-
 }
 
 impl<T: RecordType> std::fmt::Debug for Trace<T> {
@@ -124,7 +125,7 @@ impl<T: RecordType> UnlockedTrace<T> {
     pub fn key(&self) -> &VeilidRecordKey {
         &self.key
     }
-    
+
     pub fn secret(&self) -> &Secret {
         &self.secret
     }
@@ -142,7 +143,7 @@ impl<T: RecordType> From<UnlockedTrace<T>> for Trace<T> {
 
 impl<T: RecordType> TryFrom<Trace<T>> for UnlockedTrace<T> {
     type Error = IntersectError;
-    
+
     fn try_from(value: Trace<T>) -> Result<Self, Self::Error> {
         let secret = match value.access() {
             Access::Locked => Err(IntersectError::Unauthorized)?,
@@ -165,9 +166,7 @@ impl<T: RecordType> Clone for UnlockedTrace<T> {
     }
 }
 
-impl<T: RecordType> Copy for UnlockedTrace<T> {
-
-}
+impl<T: RecordType> Copy for UnlockedTrace<T> {}
 
 // manual comparison impls to avoid the RecordType bound
 impl<T: RecordType> PartialEq for UnlockedTrace<T> {

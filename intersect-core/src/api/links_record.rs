@@ -18,7 +18,7 @@ impl DomainRecord<LinksDomain> for LinksRecord {}
 
 impl RecordType for LinksRecord {
     const MAGIC: u8 = 3;
-    
+
     async fn from_record(record: Record, secret: &Secret) -> Result<Self, IntersectError> {
         Ok(Self {
             record,
@@ -54,7 +54,7 @@ impl LinksRecord {
                 // add a running index we can use as subkeys
                 .enumerate()
                 // and write the values
-                .map(|(i, link)| record.write_key(link, i as u32, identity.private_key())),
+                .map(|(i, link)| record.write(link, i as u32, identity.private_key())),
         )
         .await;
 
@@ -81,6 +81,8 @@ impl LinksRecord {
         // and grab all the links
         let links = values
             .into_iter()
+            // filter out None values
+            .filter_map(|(i, e)| e.map(|encrypted| (i, encrypted)))
             // decrypt them all
             .map(|(i, e)| {
                 e.decrypt::<LinkEntry>(self.secret())
@@ -127,7 +129,7 @@ impl LinksRecord {
         let first_unused = first_unused.ok_or(NetworkError::NoUnusedSubkey)?;
         // and store our link there!
         self.record
-            .write_key(encrypted, first_unused, identity.private_key())
+            .write(encrypted, first_unused, identity.private_key())
             .await?;
         Ok(())
     }
