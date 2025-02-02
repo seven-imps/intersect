@@ -1,10 +1,13 @@
 name: build static site artifact
 on:
-  workflow_run:
-    branches: [main]
-    # workflows: [Continuous integration]
-    # types: [completed]
+  # workflow_run:
+  #   branches: [main]
+  #   workflows: [Continuous integration]
+  #   types: [completed]
+  push:
+    branches: [ main ]
   pull_request:
+    branches: [ main ]
 
 jobs:
   release:
