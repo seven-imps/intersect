@@ -1,9 +1,10 @@
 use crate::{
     log,
     models::{Encrypted, Fragment},
-    record::Record,
+    record::{NetworkError, Record},
     ContentDomain, Domain, DomainRecord, Identity, IntersectError, RecordType, Secret,
 };
+use itertools::Itertools;
 
 // since fragments are content addressed we don't need to
 // keep track of an open record. we can just rely on the veilid cache
@@ -17,7 +18,7 @@ impl DomainRecord<ContentDomain> for FragmentRecord {}
 
 impl RecordType for FragmentRecord {
     const MAGIC: u8 = 1;
-    
+
     async fn from_record(record: Record, secret: &Secret) -> Result<Self, IntersectError> {
         Ok(Self {
             record,
@@ -48,25 +49,48 @@ impl FragmentRecord {
         // create the record
         let record = Record::create(identity, &reference.hash()).await?;
 
-        // and store the fragment in subkey 0
+        // split data into chunks
+        let bytes = encrypted.to_bytes();
+        let chunks = bytes.chunks(Record::SUBKEY_SIZE_BYTES);
+
+        // write number of used chunks to subkey 0
+        let count: u32 = chunks.len() as u32;
         record
-            .write_chunked(encrypted, identity.private_key())
+            .write_raw(count.to_be_bytes().to_vec(), 0, identity.private_key())
+            .await?;
+
+        // and write all the chunks to subkeys 1..count
+        let writes = chunks
+            // add the subkey index
+            .enumerate()
+            // and offset the index by one to account for the subkey with the count
+            .map(|(subkey, data)| ((subkey as u32) + 1, data.to_vec()));
+
+        record
+            .write_many_raw(writes, identity.private_key())
             .await?;
 
         Ok(FragmentRecord { record, secret })
     }
 
     pub async fn load(&self) -> Result<Fragment, IntersectError> {
-        // TODO: make this look at all subkeys
-        // for now, just limited to one for simplicity
-        let fragment = self
+        // read the count of used subkeys
+        let count_bytes = self
             .record
-            // fragments are always content addressed,
-            // so we can assume there will ever only be one version
-            // no need to force_refresh
-            .read_chunked(false)
+            .read_raw(0, false)
             .await?
-            .decrypt::<Fragment>(self.secret())?;
+            .ok_or_else(|| NetworkError::MissingData)?
+            .try_into()
+            .map_err(|_e| NetworkError::InvalidData)?;
+        let count = u32::from_be_bytes(count_bytes);
+
+        // fragments are always content addressed,
+        // so we can assume there will ever only be one version
+        // no need to force_refresh
+        let results = self.record.read_many_raw(1..=count, false).await?;
+
+        let data = results.into_iter().filter_map(|(_, chunk)| chunk).concat();
+        let fragment = Encrypted::from_bytes(&data)?.decrypt::<Fragment>(self.secret())?;
         Ok(fragment)
     }
 }

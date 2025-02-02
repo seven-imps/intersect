@@ -1,7 +1,7 @@
 use crate::{
     log,
     models::{Encrypted, IndexMetadata, Reference},
-    record::Record,
+    record::{NetworkError, Record},
     Domain, DomainRecord, Identity, IndexDomain, IntersectError, RecordType, RootDomain, Secret,
 };
 
@@ -48,8 +48,9 @@ impl IndexRecord {
         // must always be present
         let meta = self
             .record
-            .read_key(0, force_refresh)
+            .read(0, force_refresh)
             .await?
+            .ok_or_else(|| NetworkError::MissingData)?
             .decrypt::<IndexMetadata>(&self.secret())?;
         Ok(meta)
     }
@@ -77,9 +78,7 @@ impl IndexRecord {
         let record = Record::create(&identity, &reference.hash()).await?;
 
         // and store the metadata there
-        record
-            .write_key(encrypted, 0, identity.private_key())
-            .await?;
+        record.write(encrypted, 0, identity.private_key()).await?;
 
         Ok(IndexRecord {
             record,
@@ -94,7 +93,7 @@ impl IndexRecord {
     ) -> Result<(), IntersectError> {
         let encrypted = Encrypted::encrypt(new_metadata, self.secret())?;
         self.record
-            .write_key(encrypted, 0, identity.private_key())
+            .write(encrypted, 0, identity.private_key())
             .await?;
 
         Ok(())

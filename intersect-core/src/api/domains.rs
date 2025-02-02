@@ -49,7 +49,8 @@ where
         secret: &Secret,
     ) -> impl Future<Output = Result<Self::Record, IntersectError>> {
         async {
-            let record = Record::open(reference).await?;
+            let key = Record::build_key(reference.shard(), reference.hash()).await;
+            let record = Record::open(&key).await?;
             Self::Record::from_record(record, secret).await
         }
     }
@@ -82,7 +83,7 @@ where
         secret: &Secret,
     ) -> impl Future<Output = Result<Self, IntersectError>> {
         async {
-            let record = Record::open_key(key).await?;
+            let record = Record::open(key).await?;
             Self::from_record(record, secret).await
         }
     }
