@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package intersect.v1;
+
+// A snazzy new shirt!
+message Shirt {
+  // Label sizes
+  enum Size {
+    SMALL = 0;
+    MEDIUM = 1;
+    LARGE = 2;
+  }
+
+  // The base color
+  string color = 1;
+  // The size as stated on the label
+  Size size = 2;
+}

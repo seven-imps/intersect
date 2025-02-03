@@ -59,25 +59,25 @@ pub enum Commands {
     //     #[arg(required = true)]
     //     private_key: CryptoKey,
     // },
-    #[command(arg_required_else_help = true)]
-    Lookup {
-        /// trace
-        #[arg(required = true, value_parser = Trace::from_str)]
-        trace: Trace,
-    },
-    #[command(arg_required_else_help = true)]
-    Post {
-        /// file to post
-        #[arg(required = true)]
-        path: PathBuf,
-        // /// public key
-        // #[arg(required = true)]
-        // public_key: PublicKey,
+    // #[command(arg_required_else_help = true)]
+    // Lookup {
+    //     /// trace
+    //     #[arg(required = true, value_parser = Trace::from_str)]
+    //     trace: Trace,
+    // },
+    // #[command(arg_required_else_help = true)]
+    // Post {
+    //     /// file to post
+    //     #[arg(required = true)]
+    //     path: PathBuf,
+    //     // /// public key
+    //     // #[arg(required = true)]
+    //     // public_key: PublicKey,
 
-        // /// private key
-        // #[arg(required = true)]
-        // private_key: CryptoKey,
-    },
+    //     // /// private key
+    //     // #[arg(required = true)]
+    //     // private_key: CryptoKey,
+    // },
 }
 
 pub async fn run_command(command: Cli) -> Result<()> {
@@ -123,39 +123,39 @@ pub async fn run_command(command: Cli) -> Result<()> {
         //     println!("publishing {path:?} ...");
         //     commands::publish(path, &public_key, &private_key).await;
         // }
-        Commands::Lookup { trace } => {
-            println!("downloading trace ...");
+        // Commands::Lookup { trace } => {
+        //     println!("downloading trace ...");
 
-            let mut record = IndexRecord::from_trace(&trace).await?;
-            let fragment = record
-                .fetch_fragment()
-                .await?
-                .ok_or(anyhow!("no fragment found"))?;
+        //     let mut record = IndexRecord::from_trace(&trace).await?;
+        //     let fragment = record
+        //         .fetch_fragment()
+        //         .await?
+        //         .ok_or(anyhow!("no fragment found"))?;
 
-            let text = String::from_utf8_lossy(&fragment.fragment().data).to_string();
+        //     let text = String::from_utf8_lossy(&fragment.fragment().data).to_string();
 
-            println!("==== {} ====", record.meta().name());
-            println!();
-            println!("{text}");
+        //     println!("==== {} ====", record.meta().name());
+        //     println!();
+        //     println!("{text}");
 
-            // println!("writing to {path:?}");
-            // fs::write(path, archive.as_bytes()).unwrap();
+        //     // println!("writing to {path:?}");
+        //     // fs::write(path, archive.as_bytes()).unwrap();
 
-            Ok(())
-        }
-        Commands::Post { path } => {
-            let identity = Identity::random();
+        //     Ok(())
+        // }
+        // Commands::Post { path } => {
+        //     let identity = Identity::random();
 
-            let file: Vec<u8> = fs::read(path.clone())?;
-            let name = Segment::new(path.file_name().unwrap().to_str().unwrap())?;
+        //     let file: Vec<u8> = fs::read(path.clone())?;
+        //     let name = Segment::new(path.file_name().unwrap().to_str().unwrap())?;
 
-            let fragment = FragmentRecord::new(&identity, &Fragment::new(file)).await?;
-            let index = IndexRecord::new(&identity, &name, Some(fragment.link()), &[]).await?;
+        //     let fragment = FragmentRecord::new(&identity, &Fragment::new(file)).await?;
+        //     let index = IndexRecord::new(&identity, &name, Some(fragment.link()), &[]).await?;
 
-            let trace = index.trace();
-            println!("trace: {}", trace);
+        //     let trace = index.trace();
+        //     println!("trace: {}", trace);
 
-            Ok(())
-        }
+        //     Ok(())
+        // }
     }
 }
