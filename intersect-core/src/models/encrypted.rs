@@ -9,7 +9,7 @@ use veilid_core::{Nonce, NONCE_LENGTH};
 
 use crate::{
     rw_helpers::{BinReadAlloc, BinWriteAlloc},
-    veilid::get_crypto,
+    veilid::with_crypto,
     Secret,
 };
 
@@ -49,10 +49,15 @@ impl Encrypted {
         for<'a> <T as BinWrite>::Args<'a>: Default,
     {
         let body = data.serialise();
-        let nonce = get_crypto().random_nonce();
-        let ciphertext = get_crypto()
-            .encrypt_aead(&body, &nonce, shared_secret.key(), None)
-            .map_err(|_| EncryptionError::EncryptionFailed)?;
+        let (ciphertext, nonce) = with_crypto(|crypto| {
+            let nonce = crypto.random_nonce();
+            let ciphertext = crypto
+                .encrypt_aead(&body, &nonce, shared_secret.key(), None)
+                .map_err(|_| EncryptionError::EncryptionFailed)
+                .unwrap();
+
+            (ciphertext, nonce)
+        });
         Ok(Encrypted { nonce, ciphertext })
     }
 
@@ -71,9 +76,12 @@ impl Encrypted {
         T: BinRead + ReadEndian,
         for<'a> <T as BinRead>::Args<'a>: Default,
     {
-        let bytes = get_crypto()
-            .decrypt_aead(&self.ciphertext, &self.nonce, shared_secret.key(), None)
-            .map_err(|_| EncryptionError::DecryptionFailed)?;
+        let bytes = with_crypto(|crypto| {
+            crypto
+                .decrypt_aead(&self.ciphertext, &self.nonce, shared_secret.key(), None)
+                .map_err(|_| EncryptionError::DecryptionFailed)
+                .unwrap()
+        });
         T::deserialise(&bytes).map_err(|e| EncryptionError::DeserialisationFailed(e.to_string()))
     }
 
@@ -112,12 +120,15 @@ mod tests {
         let payload = Secret::random();
 
         let password = "hunter12";
-        let key = get_crypto()
-            .derive_shared_secret(
-                password.as_bytes(),
-                get_crypto().generate_hash("salt".as_bytes()).as_slice(),
-            )
-            .unwrap().into();
+        let key = with_crypto(|crypto| {
+            crypto
+                .derive_shared_secret(
+                    password.as_bytes(),
+                    crypto.generate_hash("salt".as_bytes()).bytes.as_slice(),
+                )
+                .unwrap()
+                .into()
+        });
         let encrypted = Encrypted::encrypt(&payload, &key).unwrap();
         println!("encrypted: {}", encrypted);
         let serialised = encrypted.serialise();

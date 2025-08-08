@@ -14,7 +14,7 @@ pub fn Intersect(children: ChildrenFn) -> impl IntoView {
 
     let init_intersect = make_action!(move |_| {
         intersect_core::init().await;
-        intersect_core::get_routing_context().await;
+        let _ = intersect_core::get_routing_context().await;
         status_context.clear();
     });
 

@@ -4,14 +4,15 @@ use std::sync::{Arc, OnceLock};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::*;
 use tracing_wasm::{WASMLayerConfigBuilder, *};
-use veilid_core::{AttachmentState, VeilidUpdate};
+use veilid_core::{AttachmentState, CryptoSystemGuard, VeilidUpdate};
 use veilid_core::{
-    CryptoKind, CryptoSystem, RoutingContext, Sequencing, VeilidAPI, VeilidConfigBlockStore,
-    VeilidConfigInner, VeilidConfigLogLevel, VeilidConfigProtectedStore, VeilidConfigTableStore,
+    CryptoKind, RoutingContext, Sequencing, VeilidAPI, VeilidConfig, VeilidConfigBlockStore,
+    VeilidConfigLogLevel, VeilidConfigProtectedStore, VeilidConfigTableStore,
 };
 use veilid_tools::Eventual;
 
-pub const CRYPTO_KIND: CryptoKind = veilid_core::CRYPTO_KIND_VLD0;
+// Equivalent to the best crypto kind.
+pub const CRYPTO_KIND: CryptoKind = veilid_core::VALID_CRYPTO_KINDS[0];
 
 pub async fn init() {
     VEILID.get_or_init(async { init_veilid().await }).await;
@@ -23,19 +24,16 @@ pub async fn shutdown() {
     VEILID.get().unwrap().clone().shutdown().await;
 }
 
-fn get_veilid() -> Option<&'static VeilidAPI> {
-    VEILID.get()
+fn get_veilid() -> Option<VeilidAPI> {
+    VEILID.get().cloned()
 }
 
-pub fn get_crypto() -> &'static Arc<dyn CryptoSystem + Send + Sync> {
-    CRYPTO.get_or_init(|| {
-        get_veilid()
-            .unwrap()
-            .crypto()
-            .unwrap()
-            .get(CRYPTO_KIND)
-            .unwrap()
-    })
+pub fn with_crypto<C: FnOnce(CryptoSystemGuard<'_>) -> T, T>(closure: C) -> T {
+    let api = get_veilid().unwrap();
+    let crypto = api.crypto().unwrap();
+    let cs = crypto.get(CRYPTO_KIND).unwrap();
+
+    closure(cs)
 }
 
 pub async fn get_routing_context() -> &'static RoutingContext {
@@ -53,14 +51,13 @@ pub async fn get_routing_context() -> &'static RoutingContext {
 // ======== //
 
 static VEILID: OnceCell<VeilidAPI> = OnceCell::new();
-static CRYPTO: OnceLock<Arc<dyn CryptoSystem + Send + Sync>> = OnceLock::new();
 static ROUTING_CONTEXT: OnceLock<RoutingContext> = OnceLock::new();
 static NETWORK_READY: OnceLock<Eventual> = OnceLock::new();
 static RELAY_READY: OnceLock<Eventual> = OnceLock::new();
 static ATTACHED: OnceLock<Eventual> = OnceLock::new();
 
 async fn init_veilid() -> VeilidAPI {
-    let config = VeilidConfigInner {
+    let config = VeilidConfig {
         program_name: "intersect".into(),
         namespace: "intersect".into(),
         protected_store: VeilidConfigProtectedStore {
@@ -109,7 +106,7 @@ pub fn setup_wasm_logging() {
     let log_level = VeilidConfigLogLevel::Info;
 
     // Performance logger
-    let filter = veilid_core::VeilidLayerFilter::new(log_level, &ignore_list);
+    let filter = veilid_core::VeilidLayerFilter::new(log_level, &ignore_list, None);
     let layer = WASMLayer::new(
         WASMLayerConfigBuilder::new()
             .set_report_logs_in_timings(true)
@@ -120,7 +117,7 @@ pub fn setup_wasm_logging() {
     layers.push(layer.boxed());
 
     // API logger
-    let filter = veilid_core::VeilidLayerFilter::new(log_level, &ignore_list);
+    let filter = veilid_core::VeilidLayerFilter::new(log_level, &ignore_list, None);
     let layer = veilid_core::ApiTracingLayer::init().with_filter(filter.clone());
     layers.push(layer.boxed());
 
@@ -146,7 +143,7 @@ fn veilid_callback(update: VeilidUpdate) {
             log!("[veilid] attachment: {:?}", msg);
             if msg.public_internet_ready {
                 // log!("[veilid] internet ready");
-                NETWORK_READY.get().unwrap().resolve();
+                let _ = NETWORK_READY.get().unwrap().resolve();
             }
             if let AttachmentState::AttachedWeak
             | AttachmentState::AttachedGood
@@ -155,7 +152,7 @@ fn veilid_callback(update: VeilidUpdate) {
             | AttachmentState::OverAttached = msg.state
             {
                 // log!("[veilid] attached");
-                ATTACHED.get().unwrap().resolve();
+                let _ = ATTACHED.get().unwrap().resolve();
             }
         }
 
@@ -167,7 +164,7 @@ fn veilid_callback(update: VeilidUpdate) {
             // this is only in a log message i guess??
             if msg.message.contains("[PublicInternet] set relay node") {
                 log!("[veilid] relay ready");
-                RELAY_READY.get().unwrap().resolve();
+                let _ = RELAY_READY.get().unwrap().resolve();
             }
         }
         VeilidUpdate::AppCall(_msg) => {

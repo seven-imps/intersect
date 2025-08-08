@@ -5,7 +5,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     rw_helpers::{BinReadAlloc, BinWriteAlloc},
-    veilid::get_crypto,
+    veilid::with_crypto,
     Secret, Shard,
 };
 
@@ -53,9 +53,11 @@ impl ProtectedSecret {
             return Err(AccessError::InvalidPassword);
         }
         // hash
-        let hash = get_crypto()
-            .derive_shared_secret(password.as_bytes(), shard.as_slice())
-            .unwrap();
+        let hash = with_crypto(|crypto| {
+            crypto
+                .derive_shared_secret(password.as_bytes(), shard.as_slice())
+                .unwrap()
+        });
         Ok(hash.into())
     }
 }

@@ -4,7 +4,7 @@ use crate::models::{
     Access, Fragment, IndexMetadata, LinkEntry, Reference, Segment, Trace, UnlockedTrace,
 };
 use crate::record::Record;
-use crate::{veilid::get_crypto, FragmentRecord, Hash, IndexRecord, Secret, Shard};
+use crate::{veilid::with_crypto, FragmentRecord, Hash, IndexRecord, Secret, Shard};
 use crate::{Identity, IntersectError, VeilidRecordKey};
 
 use super::LinksRecord;
@@ -27,19 +27,21 @@ where
     fn new_reference(shard: &Shard, hash_data: &Self::HashData) -> Reference<Self> {
         // the raw hash as defined by the domain implementation
         let raw_hash = Self::compute_raw_hash(shard, hash_data);
-        // hash the domain identifier so we have a 256 bit value
-        let domain = get_crypto().generate_hash(&[Self::MAGIC]);
-        // and then combine hashes to get the final domain separated hash
-        let hash = get_crypto()
-            .generate_hash(
-                &[
-                    shard.as_slice(),    // use shard as salt
-                    domain.as_slice(),   // domain separate them
-                    raw_hash.as_slice(), // and then the main hash
-                ]
-                .concat(),
-            )
-            .into();
+        let hash = with_crypto(|crypto| {
+            // hash the domain identifier so we have a 256 bit value
+            let domain = crypto.generate_hash(&[Self::MAGIC]);
+            // and then combine hashes to get the final domain separated hash
+            crypto
+                .generate_hash(
+                    &[
+                        shard.as_slice(),        // use shard as salt
+                        domain.bytes.as_slice(), // domain separate them
+                        raw_hash.as_slice(),     // and then the main hash
+                    ]
+                    .concat(),
+                )
+                .into()
+        });
 
         Reference::<Self>::new(shard.clone(), hash)
     }
@@ -120,10 +122,12 @@ impl Domain for ContentDomain {
 
     type HashData = [u8];
     fn compute_raw_hash(shard: &Shard, hash_data: &Self::HashData) -> Hash {
-        get_crypto()
-            // include shard as salt
-            .generate_hash(&[shard.as_slice(), hash_data].concat())
-            .into()
+        with_crypto(|crypto| {
+            crypto
+                // include shard as salt
+                .generate_hash(&[shard.as_slice(), hash_data].concat())
+                .into()
+        })
     }
 }
 
@@ -146,12 +150,14 @@ impl Domain for IndexDomain {
 
     type HashData = ();
     fn compute_raw_hash(shard: &Shard, _hash_data: &Self::HashData) -> Hash {
-        // generate random 256 bit id for this index
-        let identifier = get_crypto().random_bytes(32);
-        get_crypto()
-            // include shard as salt
-            .generate_hash(&[shard.as_slice(), identifier.as_slice()].concat())
-            .into()
+        with_crypto(|crypto| {
+            // generate random 256 bit id for this index
+            let identifier = crypto.random_bytes(32);
+            crypto
+                // include shard as salt
+                .generate_hash(&[shard.as_slice(), identifier.as_slice()].concat())
+                .into()
+        })
     }
 }
 
@@ -179,10 +185,12 @@ impl Domain for RootDomain {
     // a given shard, segment pair will always have one unique root domain hash
     type HashData = Segment;
     fn compute_raw_hash(shard: &Shard, hash_data: &Self::HashData) -> Hash {
-        get_crypto()
-            // include shard as salt
-            .generate_hash(&[shard.as_slice(), hash_data.to_string().as_bytes()].concat())
-            .into()
+        with_crypto(|crypto| {
+            crypto
+                // include shard as salt
+                .generate_hash(&[shard.as_slice(), hash_data.to_string().as_bytes()].concat())
+                .into()
+        })
     }
 }
 
@@ -229,30 +237,34 @@ impl RootDomain {
         // derive secret from public key and root name
         // this means it's essentially public knowledge!!
         // it's mostly intended for any roots that are supposed to be visible to anyone with just the shard
-        get_crypto()
-            .derive_shared_secret(
-                root_name.to_string().as_bytes(),
-                // include shard and unique string for domain separation
-                &[shard.as_slice(), b"public secret".as_slice()].concat(),
-            )
-            .unwrap()
-            .into()
+        with_crypto(|crypto| {
+            crypto
+                .derive_shared_secret(
+                    root_name.to_string().as_bytes(),
+                    // include shard and unique string for domain separation
+                    &[shard.as_slice(), b"public secret".as_slice()].concat(),
+                )
+                .unwrap()
+                .into()
+        })
     }
 
     fn private_secret(identity: &Identity, root_name: &Segment) -> Secret {
-        get_crypto()
-            .derive_shared_secret(
-                // derive password from the name and private key
-                &[
-                    root_name.to_string().as_bytes(),
-                    identity.private_key().as_slice(),
-                ]
-                .concat(),
-                // include shard and unique string for domain separation
-                &[identity.shard().as_slice(), b"private secret".as_slice()].concat(),
-            )
-            .unwrap()
-            .into()
+        with_crypto(|crypto| {
+            crypto
+                .derive_shared_secret(
+                    // derive password from the name and private key
+                    &[
+                        root_name.to_string().as_bytes(),
+                        identity.private_key().as_slice(),
+                    ]
+                    .concat(),
+                    // include shard and unique string for domain separation
+                    &[identity.shard().as_slice(), b"private secret".as_slice()].concat(),
+                )
+                .unwrap()
+                .into()
+        })
     }
 }
 
@@ -266,12 +278,14 @@ impl Domain for LinksDomain {
 
     type HashData = ();
     fn compute_raw_hash(shard: &Shard, _hash_data: &Self::HashData) -> Hash {
-        // generate random 256 bit id for this index
-        let identifier = get_crypto().random_bytes(32);
-        get_crypto()
-            // include shard as salt
-            .generate_hash(&[shard.as_slice(), identifier.as_slice()].concat())
-            .into()
+        with_crypto(|crypto| {
+            // generate random 256 bit id for this index
+            let identifier = crypto.random_bytes(32);
+            crypto
+                // include shard as salt
+                .generate_hash(&[shard.as_slice(), identifier.as_slice()].concat())
+                .into()
+        })
     }
 }
 

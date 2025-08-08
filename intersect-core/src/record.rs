@@ -2,8 +2,8 @@ use futures::future::join_all;
 use itertools::Itertools;
 use thiserror::Error;
 use veilid_core::{
-    DHTRecordDescriptor, DHTReportScope, DHTSchema, DHTSchemaSMPLMember, KeyPair, ValueSubkey,
-    ValueSubkeyRangeSet, VeilidAPIError,
+    DHTRecordDescriptor, DHTReportScope, DHTSchema, DHTSchemaSMPLMember, KeyPair, PublicKey,
+    ValueSubkey, ValueSubkeyRangeSet, VeilidAPIError,
 };
 
 use crate::{
@@ -51,7 +51,6 @@ impl Record {
         let rc = get_routing_context().await;
         let schema = build_schema(hash);
         rc.get_dht_record_key(schema.clone(), shard.key(), Some(CRYPTO_KIND))
-            .await
             .unwrap() // this should Never™ fail
             .value
             .into()
@@ -59,7 +58,7 @@ impl Record {
 
     pub async fn open(key: &VeilidRecordKey) -> Result<Self, NetworkError> {
         let rc = get_routing_context().await;
-        let key = veilid_core::TypedKey::new(CRYPTO_KIND, key.into());
+        let key = veilid_core::TypedRecordKey::new(CRYPTO_KIND, key.into());
 
         log!("opening record: {}", key);
         let descriptor = rc
@@ -85,7 +84,7 @@ impl Record {
         // this is some real "trust me bro" code
         let hash: Hash = match descriptor.schema() {
             DHTSchema::DFLT(_) => panic!(),
-            DHTSchema::SMPL(schema) => schema.members()[0].m_key.into(),
+            DHTSchema::SMPL(schema) => Hash::from_bytes(schema.members()[0].m_key.bytes),
         };
 
         Ok(Self {
@@ -236,7 +235,7 @@ impl Record {
         let report = rc
             .inspect_dht_record(
                 *self.descriptor.key(),
-                ValueSubkeyRangeSet::single_range(0, Self::MAX_SUBKEYS),
+                Some(ValueSubkeyRangeSet::single_range(0, Self::MAX_SUBKEYS)),
                 DHTReportScope::Local,
             )
             .await
@@ -250,7 +249,7 @@ impl Record {
             // only unused subkeys
             // TODO: also allow for reuse of deleted entries
             // this would require looking at the value though, and seeing if it's empty
-            .filter(|(_, seq)| **seq == ValueSubkey::MAX)
+            .filter(|(_, seq)| **seq == None)
             // and only keep the index
             .map(|(i, _)| i as ValueSubkey)
             .collect_vec();
@@ -272,7 +271,7 @@ impl Record {
         let report = rc
             .inspect_dht_record(
                 *self.descriptor.key(),
-                ValueSubkeyRangeSet::single_range(0, Self::MAX_SUBKEYS),
+                Some(ValueSubkeyRangeSet::single_range(0, Self::MAX_SUBKEYS)),
                 DHTReportScope::Local,
             )
             .await
@@ -284,7 +283,7 @@ impl Record {
             // add the subkey index
             .enumerate()
             // only used subkeys
-            .filter(|(_, seq)| **seq != ValueSubkey::MAX)
+            .filter(|(_, seq)| **seq != None)
             // and read the subkey values
             .map(|(i, _)| async move { (i as ValueSubkey, self.read(i as u32, false).await) })
             .collect_vec();
@@ -317,7 +316,7 @@ impl Record {
         let report = rc
             .inspect_dht_record(
                 *self.descriptor.key(),
-                ValueSubkeyRangeSet::single_range(0, Self::MAX_SUBKEYS),
+                Some(ValueSubkeyRangeSet::single_range(0, Self::MAX_SUBKEYS)),
                 DHTReportScope::UpdateGet,
             )
             .await
@@ -332,15 +331,15 @@ impl Record {
             // and add the subkey
             .enumerate()
             .filter(|(_, (remote, local))| {
-                log!("local: {}, remote: {}", local, remote);
+                log!("local: {:?}, remote: {:?}", local, remote);
                 true
             })
             // remove any that don't have a remote value
-            .filter(|(_, (remote, _))| **remote != ValueSubkey::MAX)
+            .filter(|(_, (remote, _))| **remote != None)
             // only keep ones that are newer than our local copy
             .filter(|(_, (remote, local))| {
                 // log!("local: {}, remote: {}", local, remote);
-                remote > local || **local == ValueSubkey::MAX
+                remote > local || **local == None
             })
             // and collect the subkey values
             .map(|(i, (_, _))| i)
@@ -407,7 +406,7 @@ fn build_schema(hash: &Hash) -> DHTSchema {
         vec![
             // and unique identifier
             DHTSchemaSMPLMember {
-                m_key: hash.into(),
+                m_key: PublicKey::new(*hash.bytes()),
                 m_cnt: 0,
             },
         ],

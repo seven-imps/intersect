@@ -1,10 +1,12 @@
-use crate::veilid::get_crypto;
+use crate::veilid::with_crypto;
 use base58::FromBase58;
 use base58::ToBase58;
 use binrw::binrw;
 use std::str::FromStr;
 use thiserror::Error;
-use veilid_core::{CryptoKey, HashDigest, KeyPair, PublicKey, SharedSecret};
+use veilid_core::RecordKey;
+use veilid_core::SecretKey;
+use veilid_core::{HashDigest, KeyPair, PublicKey, SharedSecret};
 
 #[derive(Error, Debug, Clone)]
 #[non_exhaustive]
@@ -82,7 +84,7 @@ macro_rules! wrap_key_type {
                     .from_base58()
                     .map_err(|_| KeyError::DeserialisationFailed)
                     .and_then(|s| s.try_into().map_err(|_| KeyError::DeserialisationFailed))
-                    .and_then(|s| Ok($new_type(CryptoKey::new(s))))
+                    .and_then(|s| Ok($new_type(<$wrapped_type>::new(s))))
                     .map_err(|_| KeyError::DeserialisationFailed)
             }
         }
@@ -105,19 +107,18 @@ macro_rules! wrap_key_type {
 
 // we do all this instead of just using the veilid types for a few reasons:
 //   - so we can wrap it in #[binrw]
-//   - the veilid types are all CryptoKey underneath, but they are not interchangeable semantically
 //   - so i can implement my own (de)serialisation
 wrap_key_type!(Shard, PublicKey);
-wrap_key_type!(PrivateKey, CryptoKey);
+wrap_key_type!(PrivateKey, SecretKey);
 wrap_key_type!(Secret, SharedSecret);
 wrap_key_type!(Hash, HashDigest);
-wrap_key_type!(VeilidRecordKey, CryptoKey);
+wrap_key_type!(VeilidRecordKey, RecordKey);
 
 // and then some stuff that isn't shared between all the variants
 
 impl Secret {
     pub fn random() -> Self {
-        get_crypto().random_shared_secret().into()
+        with_crypto(|crypto| crypto.random_shared_secret().into())
     }
 }
 
@@ -132,7 +133,7 @@ pub struct Identity {
 impl Identity {
     pub fn new(shard: Shard, private_key: PrivateKey) -> Result<Self, InvalidKeypair> {
         // validate keypair!!
-        if get_crypto().validate_keypair(&shard.into(), &private_key.into()) {
+        if with_crypto(|crypto| crypto.validate_keypair(&shard.into(), &private_key.into())) {
             Ok(Identity { shard, private_key })
         } else {
             Err(InvalidKeypair)
@@ -140,7 +141,7 @@ impl Identity {
     }
 
     pub fn random() -> Self {
-        let keypair = get_crypto().generate_keypair();
+        let keypair = with_crypto(|crypto| crypto.generate_keypair());
         // if this unwrap fails we're in deep shit
         Identity::new(keypair.key.into(), keypair.secret.into()).unwrap()
     }
