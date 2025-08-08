@@ -3,6 +3,8 @@ use std::future::Future;
 use intersect_core::log;
 use leptos::*;
 
+use crate::components::Modal;
+
 use super::empty_view;
 
 #[derive(Clone, Copy)]
@@ -105,20 +107,31 @@ pub fn Status(children: ChildrenFn) -> impl IntoView {
         let error = context.error_signal.get();
 
         let should_show = status.is_some() || !error.is_empty();
+        let show_error_modal = create_rw_signal(true);
 
-        let status = if let Some(status) = status {
-            view! { <p class="status-text"> {status} </p> }.into_view()
-        } else if !error.is_empty() {
-            view! { <p class="status-error-text"> {error} </p> }.into_view()
+        let error_memo = create_memo(move |_| error.clone());
+        create_effect(move |_| {
+            if !error_memo.get().is_empty() {
+                show_error_modal.set(true);
+            }
+        });
+
+        if let Some(status) = status {
+            view! {
+                <div class="status" aria-expanded= if should_show { "true" } else { "false" }>
+                    <p class="status-text"> {status} </p>
+                </div>
+                <div class="status-backdrop"></div>
+            }
+            .into_view()
+        } else if !error_memo.get().is_empty() {
+            view! {
+                <Modal show=show_error_modal title="An error occurred">
+                    <p class="status-error-text"> {error_memo.get()} </p>
+                </Modal>
+            }
         } else {
             empty_view()
-        };
-
-        view! {
-            <div class="status" aria-expanded= if should_show { "true" } else { "false" }>
-                {&status}
-            </div>
-            <div class="status-backdrop"></div>
         }
     };
 
