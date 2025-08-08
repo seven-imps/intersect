@@ -66,6 +66,10 @@ a {
     }
 }
 
+button {
+    cursor: pointer;
+}
+
 button:not(.button-icon) {
     padding: 0.25rem;
     margin-bottom: 1em;
