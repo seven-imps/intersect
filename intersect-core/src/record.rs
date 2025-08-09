@@ -3,7 +3,7 @@ use itertools::Itertools;
 use thiserror::Error;
 use veilid_core::{
     DHTRecordDescriptor, DHTReportScope, DHTSchema, DHTSchemaSMPLMember, KeyPair, PublicKey,
-    ValueSubkey, ValueSubkeyRangeSet, VeilidAPIError,
+    SetDHTValueOptions, ValueSubkey, ValueSubkeyRangeSet, VeilidAPIError,
 };
 
 use crate::{
@@ -175,7 +175,10 @@ impl Record {
             *self.descriptor.key(),
             subkey,
             data,
-            Some(KeyPair::new(*self.shard.key(), *private_key.key())),
+            Some(SetDHTValueOptions {
+                writer: Some(KeyPair::new(*self.shard.key(), *private_key.key())),
+                ..Default::default()
+            }),
         )
         .await
         .map_err(|e| NetworkError::RecordWriteFailed(e))?;
