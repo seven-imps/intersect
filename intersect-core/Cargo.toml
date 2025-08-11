@@ -12,10 +12,10 @@ rt-wasm = ["veilid-core/default-wasm", "veilid-tools/rt-wasm-bindgen"]
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"
-veilid-core = { version = "0.4.7", default-features = false }
+veilid-core = { version = "0.4.8", default-features = false }
 # veilid-core = { path = "../../veilid/veilid-core", default-features = false }
 # veilid-core = { git = "https://gitlab.com/evelyn-h/veilid.git", branch = "create-record-with-owner", default-features = false }
-veilid-tools = { version = "0.4.7", default-features = false }
+veilid-tools = { version = "0.4.8", default-features = false }
 # veilid-tools = { path = "../../veilid/veilid-tools", default-features = false }
 # veilid-tools = { git = "https://gitlab.com/evelyn-h/veilid.git", branch = "create-record-with-owner", default-features = false }
 binrw = "0.13.3"

@@ -11,8 +11,7 @@ use veilid_core::{
 };
 use veilid_tools::Eventual;
 
-// Equivalent to the best crypto kind.
-pub const CRYPTO_KIND: CryptoKind = veilid_core::VALID_CRYPTO_KINDS[0];
+pub const CRYPTO_KIND: CryptoKind = veilid_core::CRYPTO_KIND_VLD0;
 
 pub async fn init() {
     VEILID.get_or_init(async { init_veilid().await }).await;
