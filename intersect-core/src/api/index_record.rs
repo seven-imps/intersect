@@ -24,8 +24,6 @@ impl DomainRecord<IndexDomain> for IndexRecord {}
 impl DomainRecord<RootDomain> for IndexRecord {}
 
 impl RecordType for IndexRecord {
-    const MAGIC: u8 = 2;
-
     async fn from_record(record: Record, secret: &Secret) -> Result<Self, IntersectError> {
         Ok(Self {
             record,

@@ -2,7 +2,7 @@ use crate::{
     log,
     models::{Encrypted, Fragment},
     record::{NetworkError, Record},
-    ContentDomain, Domain, DomainRecord, Identity, IntersectError, RecordType, Secret,
+    Domain, DomainRecord, FragmentDomain, Identity, IntersectError, RecordType, Secret,
 };
 use itertools::Itertools;
 
@@ -14,11 +14,9 @@ pub struct FragmentRecord {
     secret: Secret,
 }
 
-impl DomainRecord<ContentDomain> for FragmentRecord {}
+impl DomainRecord<FragmentDomain> for FragmentRecord {}
 
 impl RecordType for FragmentRecord {
-    const MAGIC: u8 = 1;
-
     async fn from_record(record: Record, secret: &Secret) -> Result<Self, IntersectError> {
         Ok(Self {
             record,
@@ -44,7 +42,7 @@ impl FragmentRecord {
         log!("building new fragment record");
         let (encrypted, secret) = Encrypted::encrypt_with_random(fragment)?;
         log!("making ref");
-        let reference = ContentDomain::new_reference(identity.shard(), &encrypted.to_bytes());
+        let reference = FragmentDomain::new_reference(identity.shard(), &encrypted.to_bytes());
 
         // create the record
         let record = Record::create(identity, &reference.hash()).await?;

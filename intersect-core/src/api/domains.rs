@@ -16,7 +16,7 @@ where
     Self: Clone + PartialEq + std::fmt::Debug + Copy,
 {
     /// unique domain identifier (this will get hashed)
-    const MAGIC: u8;
+    const MAGIC: &str;
     /// record type
     type Record: RecordType + DomainRecord<Self>;
     // type Error;
@@ -28,7 +28,7 @@ where
         // the raw hash as defined by the domain implementation
         let raw_hash = Self::compute_raw_hash(shard, hash_data);
         // hash the domain identifier so we have a 256 bit value
-        let domain = get_crypto().generate_hash(&[Self::MAGIC]);
+        let domain = get_crypto().generate_hash(Self::MAGIC.as_bytes());
         // and then combine hashes to get the final domain separated hash
         let hash = get_crypto()
             .generate_hash(
@@ -69,8 +69,6 @@ pub trait RecordType
 where
     Self: Sized,
 {
-    const MAGIC: u8;
-
     fn from_record(
         record: Record,
         secret: &Secret,
@@ -113,9 +111,9 @@ where
 // ==== content domain ====
 
 #[derive(PartialEq, Clone, Debug, Copy)]
-pub struct ContentDomain;
-impl Domain for ContentDomain {
-    const MAGIC: u8 = 1;
+pub struct FragmentDomain;
+impl Domain for FragmentDomain {
+    const MAGIC: &str = "fragment";
     type Record = FragmentRecord;
 
     type HashData = [u8];
@@ -127,7 +125,7 @@ impl Domain for ContentDomain {
     }
 }
 
-impl ContentDomain {
+impl FragmentDomain {
     pub async fn create(
         identity: &Identity,
         fragment: &Fragment,
@@ -141,7 +139,7 @@ impl ContentDomain {
 #[derive(PartialEq, Clone, Debug, Copy)]
 pub struct IndexDomain;
 impl Domain for IndexDomain {
-    const MAGIC: u8 = 2;
+    const MAGIC: &str = "index";
     type Record = IndexRecord;
 
     type HashData = ();
@@ -171,7 +169,7 @@ impl IndexDomain {
 #[derive(PartialEq, Clone, Debug, Copy)]
 pub struct RootDomain;
 impl Domain for RootDomain {
-    const MAGIC: u8 = 3;
+    const MAGIC: &str = "root";
     type Record = IndexRecord;
 
     // root hashes are based on a segment name
@@ -261,7 +259,7 @@ impl RootDomain {
 #[derive(PartialEq, Clone, Debug, Copy)]
 pub struct LinksDomain;
 impl Domain for LinksDomain {
-    const MAGIC: u8 = 4;
+    const MAGIC: &str = "links";
     type Record = LinksRecord;
 
     type HashData = ();

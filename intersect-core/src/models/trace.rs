@@ -1,12 +1,12 @@
-use std::marker::PhantomData;
+use std::{any::TypeId, marker::PhantomData};
 
 use base58::{FromBase58, ToBase58};
-use binrw::binrw;
 use thiserror::Error;
 
 use crate::{
+    proto,
     record::Record,
-    rw_helpers::{BinReadAlloc, BinWriteAlloc},
+    serialisation::{DeserialisationError, Deserialise, Serialise},
     Domain, DomainRecord, IntersectError, RecordType, Secret, VeilidRecordKey,
 };
 
@@ -15,11 +15,7 @@ use super::Access;
 // traces are essentially "links"
 // they're what you would share with someone to show them a page
 
-#[binrw]
-#[brw(big)]
 pub struct Trace<T: RecordType> {
-    #[bw(map = |_| T::MAGIC)]
-    #[br(try_map = |d: u8| (d == T::MAGIC).then_some(PhantomData).ok_or("invalid record type magic"))]
     _domain: PhantomData<T>,
     key: VeilidRecordKey,
     access: Access,
@@ -104,6 +100,54 @@ impl<T: RecordType> TryFrom<&str> for Trace<T> {
             .map_err(|e| TraceError::DeserialisationFailed(e.to_string()))
     }
 }
+
+// (de)serialisation
+
+// // some magic to map types to enum values
+// fn get_domain_value<T: RecordType + 'static>() -> proto::intersect::v1::RecordType {
+//     use proto::intersect::v1::RecordType;
+//     match TypeId::of::<T>() {
+//         id if id == TypeId::of::<crate::FragmentRecord>() => RecordType::Fragment,
+//         id if id == TypeId::of::<crate::IndexRecord>() => RecordType::Index,
+//         id if id == TypeId::of::<crate::LinksRecord>() => RecordType::Links,
+//         _ => RecordType::Unknown,
+//     }
+// }
+
+fn trace_to_proto<T: RecordType>(
+    trace: &Trace<T>,
+    domain: proto::intersect::v1::RecordType,
+) -> proto::intersect::v1::Trace {
+    proto::intersect::v1::Trace {
+        domain: domain as i32,
+        key: Some(trace.key.key().into()),
+        access: Some(trace.access.into()),
+    }
+}
+
+impl From<&Trace<crate::IndexRecord>> for proto::intersect::v1::Trace {
+    fn from(value: &Trace<crate::IndexRecord>) -> Self {
+        trace_to_proto(value, proto::intersect::v1::RecordType::Index)
+    }
+}
+
+impl Serialise for Trace<crate::IndexRecord> {
+    fn serialise_v1_proto(&self) -> impl prost::Message {
+        Into::<proto::intersect::v1::Trace>::into(self)
+    }
+}
+
+// impl<T: RecordType> Deserialise for Trace<T> {
+//     fn deserialise_v1(bytes: &[u8]) -> Result<Self, DeserialisationError> {
+//         let proto = Self::deserialise_proto::<proto::intersect::v1::Trace>(bytes)?;
+
+//         Ok(Trace {
+//             data: proto
+//                 .data
+//                 .ok_or(DeserialisationError::Failed("missing data".to_owned()))?,
+//         })
+//     }
+// }
 
 // this is intentionally not serialisable!!
 // only for internal use in an application

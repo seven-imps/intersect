@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package veilid;
+
+// base types from
+// https://gitlab.com/veilid/veilidchat/-/blob/main/packages/veilid_support/lib/proto/veilid.proto
+
+// 32-byte value in bigendian format
+message CryptoKey {
+  fixed32 u0 = 1;
+  fixed32 u1 = 2;
+  fixed32 u2 = 3;
+  fixed32 u3 = 4;
+  fixed32 u4 = 5;
+  fixed32 u5 = 6;
+  fixed32 u6 = 7;
+  fixed32 u7 = 8;
+}
+
+// 24-byte value in bigendian format
+message Nonce {
+  fixed32 u0 = 1;
+  fixed32 u1 = 2;
+  fixed32 u2 = 3;
+  fixed32 u3 = 4;
+  fixed32 u4 = 5;
+  fixed32 u5 = 6;
+}

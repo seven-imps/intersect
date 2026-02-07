@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 
 use intersect_core::models::{Fragment, IndexMetadata, Segment, UnlockedTrace};
-use intersect_core::{ContentDomain, Identity, IndexDomain, IndexRecord, RecordType};
+use intersect_core::{FragmentDomain, Identity, IndexDomain, IndexRecord, RecordType};
 use leptos::*;
 
 use crate::components::{Form, IfSome, StatusContext, TextArea, TextInput};

@@ -1,7 +1,12 @@
+use crate::proto;
+use crate::serialisation::DeserialisationError;
+use crate::serialisation::Deserialise;
+use crate::serialisation::Serialise;
 use crate::veilid::get_crypto;
 use base58::FromBase58;
 use base58::ToBase58;
-use binrw::binrw;
+use prost::Message;
+use std::io::Read;
 use std::str::FromStr;
 use thiserror::Error;
 use veilid_core::{CryptoKey, HashDigest, KeyPair, PublicKey, SharedSecret};
@@ -17,11 +22,7 @@ pub enum KeyError {
 // see explanation below
 macro_rules! wrap_key_type {
     ($new_type:ident, $wrapped_type:ty) => {
-        #[binrw]
-        #[brw(big)]
         #[derive(PartialEq, Debug, Clone, Hash, Eq, Copy)]
-        #[bw(map = $new_type::bytes_cloned)]
-        #[br(map = $new_type::from_bytes)]
         pub struct $new_type($wrapped_type);
 
         impl $new_type {

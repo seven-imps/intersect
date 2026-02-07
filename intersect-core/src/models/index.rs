@@ -1,10 +1,11 @@
 use super::{Segment, Trace};
-use crate::{rw_helpers::RWOption, FragmentRecord, IndexRecord, LinksRecord, Shard};
-use binrw::binrw;
+use crate::{
+    proto,
+    serialisation::{DeserialisationError, Deserialise, Serialise},
+    FragmentRecord, IndexRecord, LinksRecord, Shard,
+};
 // use veilid_core::Timestamp;
 
-#[binrw]
-#[brw(big)]
 #[derive(PartialEq, Debug, Clone)]
 pub struct IndexMetadata {
     shard: Shard,
@@ -13,14 +14,10 @@ pub struct IndexMetadata {
     name: Segment,
 
     // reference to the fragment for this index
-    #[bw(map = RWOption::from)]
-    #[br(map = RWOption::into)]
     // using traces here lets us have unlocked, pwd protected, or locked links
     fragment: Option<Trace<FragmentRecord>>,
 
     // reference to the links for this index
-    #[bw(map = RWOption::from)]
-    #[br(map = RWOption::into)]
     links: Option<Trace<LinksRecord>>,
     // timestamps
     // #[bw(map = |t| Timestamp::as_u64(t.clone()))]
@@ -100,8 +97,52 @@ impl IndexMetadata {
     }
 }
 
-#[binrw]
-#[brw(big)]
+impl From<&IndexMetadata> for proto::intersect::v1::IndexMetadata {
+    fn from(value: &IndexMetadata) -> Self {
+        proto::intersect::v1::IndexMetadata {
+            // nonce: Some(self.nonce.into()),
+            // ciphertext: Some(self.ciphertext.clone()),
+            shard: Some(value.shard.key().into()),
+            name: Some(value.name.to_string()),
+            fragment: value.fragment.map(Into::into),
+            links: value.links.into(),
+        }
+    }
+}
+
+impl Serialise for IndexMetadata {
+    fn serialise_v1_proto(&self) -> impl prost::Message {
+        Into::<proto::intersect::v1::IndexMetadata>::into(self)
+    }
+}
+
+impl Deserialise for IndexMetadata {
+    fn deserialise_v1(bytes: &[u8]) -> Result<Self, DeserialisationError> {
+        let proto = Self::deserialise_proto::<proto::intersect::v1::IndexMetadata>(bytes)?;
+
+        let shard = Shard::from(
+            proto
+                .shard
+                .ok_or(DeserialisationError::Failed("missing shard".to_owned()))?
+                .into(),
+        );
+
+        let name = Segment::new(
+            proto
+                .name
+                .ok_or(DeserialisationError::Failed("missing name".to_owned()))?,
+        )
+        .map_err(|_| DeserialisationError::Failed("invalid name".to_owned()))?;
+
+        Ok(IndexMetadata {
+            shard,
+            name,
+            fragment: proto.fragment.into(),
+            links: proto.links.into(),
+        })
+    }
+}
+
 #[derive(PartialEq, Debug, Clone)]
 pub struct LinkEntry {
     // "filename"

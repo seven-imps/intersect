@@ -1,6 +1,5 @@
 use std::fmt;
 
-use binrw::{binrw, NullString};
 use lazy_regex::{lazy_regex, Lazy, Regex};
 use thiserror::Error;
 
@@ -12,12 +11,8 @@ pub static MAX_SEGMENT_LENGTH: usize = 256;
 pub static SEGMENT_REGEX: Lazy<Regex> =
     lazy_regex!(r"^( |\p{Alphabetic}|\d|\p{Pattern_Syntax}|\p{Emoji})+$");
 
-#[binrw]
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub struct Segment {
-    #[brw(assert(Segment::is_valid(&segment)))]
-    #[br(try_map = TryFrom::<NullString>::try_from)]
-    #[bw(map = |x| NullString::from(x.clone()))]
     segment: String,
 }
 

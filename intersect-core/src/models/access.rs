@@ -1,31 +1,18 @@
 use base58::{FromBase58, ToBase58};
-use binrw::binrw;
 use thiserror::Error;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::{
-    rw_helpers::{BinReadAlloc, BinWriteAlloc},
-    veilid::get_crypto,
-    Secret, Shard,
-};
+use crate::{veilid::get_crypto, Secret, Shard};
 
 use super::{Encrypted, EncryptionError};
 
-#[binrw]
-#[brw(big)]
 #[derive(PartialEq, Clone, Eq)]
 pub enum Access {
-    #[brw(magic = 1u8)]
     Locked,
-
-    #[brw(magic = 2u8)]
     Unlocked(Secret),
-
-    #[brw(magic = 3u8)]
     Protected(ProtectedSecret),
 }
 
-#[binrw]
 #[derive(PartialEq, Clone, Eq)]
 pub struct ProtectedSecret(Encrypted);
 

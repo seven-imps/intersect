@@ -17,8 +17,6 @@ pub struct LinksRecord {
 impl DomainRecord<LinksDomain> for LinksRecord {}
 
 impl RecordType for LinksRecord {
-    const MAGIC: u8 = 3;
-
     async fn from_record(record: Record, secret: &Secret) -> Result<Self, IntersectError> {
         Ok(Self {
             record,
