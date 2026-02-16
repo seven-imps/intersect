@@ -5,6 +5,7 @@ debug/
 */dist
 
 .veilid/
+.intersect/
 
 perf.data
 perf.data.old

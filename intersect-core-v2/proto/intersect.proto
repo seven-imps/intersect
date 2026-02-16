@@ -1,0 +1,119 @@
+syntax = "proto3";
+
+package v1.intersect;
+
+import "veilid.proto";
+
+// ==== encrypted payloads ====
+
+message Encrypted {
+  veilid.Nonce nonce = 1;
+  bytes ciphertext = 2;
+}
+
+// ==== traces ====
+// traces are access-controlled references to an index record
+
+message Access {
+  message Locked {}
+  message Unlocked { veilid.SharedSecret secret = 1; }
+  message Protected { Encrypted encrypted_secret = 1; } // Encrypted veilid.SharedSecret
+
+  oneof access_level {
+    Locked locked = 1;
+    Unlocked unlocked = 2;
+    Protected protected = 3;
+  }
+}
+
+message Trace {
+  // record key including default-encryption key (ensures that caching nodes never see plaintext)
+  veilid.RecordKey record = 2;
+  // intersect uses its own encryption on top of the default-encryption
+  // so that indexes can be referenced without neccessarily including their encryption key
+  Access access = 3;
+}
+
+// ==== record reference ====
+// these are like traces in that they point at a record and include access information,
+// references however just always include the encryption key. the're in a sense "unlocked" traces.
+// they're used for referencing non-index records like fragments and links.
+// these are also only for internal use, while traces are meant to be user-facing
+
+message RecordReference {
+  // record key including default-encryption key (ensures that caching nodes never see plaintext)
+  veilid.RecordKey record = 1;
+  // and the intersect-specific encryption key
+  veilid.SharedSecret secret = 2;
+}
+
+// ==== fragment record ====
+// 0: FragmentHeader
+// 1..?: FragmentChunk
+// the reassembled fragment data will be an Encrypted message containing data of the given mime type
+
+// inspired by https://gitlab.com/veilid/veilidchat/-/blob/main/packages/veilid_support/lib/dht_support/proto/dht.proto
+message FragmentHeader {
+  // hash of reassembled data to verify contents (of the *encrypted* data!)
+  veilid.HashDigest hash = 1;
+  // chunk size per subkey (in bytes)
+  uint32 chunk = 2;
+  // total data size (in bytes)
+  uint32 size = 3;
+  // content type will be 'text/markdown;charset=UTF-8' for most intersect fragments
+  string mime = 4;
+  // other keys to concatenate (same writer key)
+  repeated RecordReference keys = 5;
+}
+
+// contents of a single Fragment subkey
+message FragmentChunk { bytes data = 1; }
+
+// ==== index record ====
+// indexes act as a sort of header for a "file" and also contain arbitrary links to other "files"
+// 0: IndexHeader
+
+message IndexHeader {
+  // reference to the writer account
+  RecordReference account = 1;
+  // name for this "file"
+  optional string name = 2;
+  // content for this "file"
+  optional RecordReference fragment = 3;
+  // links to other indexes
+  optional RecordReference links = 4;
+}
+
+// ==== links record ====
+// 0: LinksHeader
+// 1..?: Link
+
+message LinksHeader {
+  // TODO: build this out in a similar way to DHTShortArray
+}
+
+// links are essentially just named traces stored in a subkey
+message Link {
+  Trace trace = 1;
+  optional string name = 2;
+}
+
+// ==== account record ====
+// 0: AccountPublic, encrypted with key given in Reference
+// 1: AccountPrivate, encrypted with a password hash that only the owner knows, never persisted to the DHT
+
+message AccountPublic {
+  // full public key because it can't be derived from the memberid in the schema
+  veilid.PublicKey public_key = 1;
+  // TODO: limit to something short-ish in code. maybe 64 chars max?
+  optional string name = 2; // max 64 bytes
+  // TODO: make sure this is appropriately size limited in code to avoid  the 32kb total per subkey cap. say, 8kb max?
+  optional string bio = 3;
+}
+
+message AccountPrivate {
+  // contains the private key so that the account password can be independent from the keypair
+  veilid.SecretKey private_key = 1;
+  // Links record of bookmarked traces
+  Trace bookmarks = 2;
+}
