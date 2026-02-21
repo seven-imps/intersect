@@ -120,7 +120,7 @@ impl SerialisableV1 for Encrypted {
 
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         Ok(Self::Proto {
-            nonce: Some(proto::v1::veilid::Nonce::from((&self.nonce).try_into()?)),
+            nonce: Some((&self.nonce).try_into()?),
             ciphertext: self.ciphertext.clone(),
         })
     }

@@ -142,6 +142,12 @@ impl UpdateLogger {
     }
 }
 
+impl Default for UpdateLogger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UpdateHandler for UpdateLogger {
     fn log(&self, _log: &VeilidLog) {
         // debug!("[veilid] log {:?}", log);

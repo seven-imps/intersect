@@ -36,8 +36,10 @@ impl Access {
         Self::Locked
     }
 
-    pub fn new_unlocked(secret: SharedSecret) -> Self {
-        Self::Unlocked { secret }
+    pub fn new_unlocked(secret: &SharedSecret) -> Self {
+        Self::Unlocked {
+            secret: secret.clone(),
+        }
     }
 
     pub fn new_protected(

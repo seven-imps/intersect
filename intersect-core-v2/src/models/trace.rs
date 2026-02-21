@@ -128,7 +128,36 @@ impl std::str::FromStr for Trace {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let bytes = s
             .from_base58()
+            // .inspect_err(|e| match e {
+            //     base58::FromBase58Error::InvalidBase58Character(c, _) => {
+            //         println!("invalid char: {}", c)
+            //     }
+            //     base58::FromBase58Error::InvalidBase58Length => println!("invalid length"),
+            // })
             .map_err(|_| DeserialisationError::Failed("invalid base58 encoding".to_string()))?;
         Self::deserialise(&bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::*;
+
+    #[test]
+    fn string_roundtrip() {
+        // build trace
+        let key = RecordKey::from_str(
+            "VLD0:sX9L_EV3JAy5ozyK875WErKAyFhBy4jZ-6DZajlDr9c:KpS0JtGg9OfJhpsIVCFY8FI9arViozN3kw3duglNkmY",
+        ).unwrap();
+        let trace = Trace::new(RecordType::Account, &key, Access::Locked).unwrap();
+
+        // to string ...
+        let trace_string = trace.to_string();
+        // .. and back
+        let deserialised_trace = Trace::from_str(&trace_string).unwrap();
+
+        assert_eq!(trace, deserialised_trace);
     }
 }

@@ -11,7 +11,7 @@ use guard_clause::guard;
 use veilid_core::PublicKey;
 
 use crate::{
-    models::ValidationError,
+    models::{Trace, ValidationError},
     proto,
     serialisation::{
         DeserialisationError, SerialisableV1, SerialisationError, impl_v1_proto_conversions,
@@ -23,7 +23,7 @@ pub struct AccountPublic {
     public_key: PublicKey,
     name: Option<String>,
     bio: Option<String>,
-    // home: Option<Trace>,
+    home: Option<Trace>,
 }
 
 impl AccountPublic {
@@ -31,11 +31,12 @@ impl AccountPublic {
         public_key: PublicKey,
         name: Option<String>,
         bio: Option<String>,
+        home: Option<Trace>,
     ) -> Result<Self, ValidationError> {
         // max 64 bytes for name
         // (note: this is distinct from 64 characters because of multi-byte characters!)
         guard!(
-            name.as_ref().map_or(true, |n| n.len() <= 64),
+            name.as_ref().is_none_or(|n| n.len() <= 64),
             Err(ValidationError::TooLong(
                 "name can be at most 64 bytes".to_string()
             ))
@@ -43,7 +44,7 @@ impl AccountPublic {
 
         // max 8KiB for bio
         guard!(
-            bio.as_ref().map_or(true, |n| n.len() <= 8 * 1024),
+            bio.as_ref().is_none_or(|n| n.len() <= 8 * 1024),
             Err(ValidationError::TooLong(
                 "bio can be at most 8 kilobytes".to_string()
             ))
@@ -53,6 +54,7 @@ impl AccountPublic {
             public_key,
             name,
             bio,
+            home,
         })
     }
 
@@ -66,6 +68,10 @@ impl AccountPublic {
 
     pub fn bio(&self) -> Option<&String> {
         self.bio.as_ref()
+    }
+
+    pub fn home(&self) -> Option<&Trace> {
+        self.home.as_ref()
     }
 }
 
@@ -86,7 +92,8 @@ impl SerialisableV1 for AccountPublic {
             .public_key
             .ok_or(DeserialisationError::MissingField("public_key".to_owned()))?
             .into();
-        Ok(Self::new(public_key, proto.name, proto.bio)?)
+        let home: Option<Trace> = proto.home.map(TryInto::try_into).transpose()?;
+        Ok(Self::new(public_key, proto.name, proto.bio, home)?)
     }
 }
 

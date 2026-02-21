@@ -52,7 +52,7 @@ impl Connection {
 
         // add default handlers
         connection.add_update_handler(Box::new(attachment_watcher));
-        connection.add_update_handler(Box::new(UpdateLogger::new()));
+        connection.add_update_handler(Box::new(UpdateLogger::default()));
 
         // boot up the node
         connection
@@ -96,16 +96,16 @@ impl Connection {
     /// over the public internet. Call this before performing network operations.
     pub async fn wait_for_attachment(&mut self) -> () {
         let is_attached = |attachment: &VeilidStateAttachment| {
-            let attached = match attachment.state {
+            let attached = matches!(
+                attachment.state,
                 AttachmentState::AttachedWeak
-                | AttachmentState::AttachedGood
-                | AttachmentState::AttachedStrong
-                | AttachmentState::FullyAttached
-                | AttachmentState::OverAttached => true,
-                _ => false,
-            };
+                    | AttachmentState::AttachedGood
+                    | AttachmentState::AttachedStrong
+                    | AttachmentState::FullyAttached
+                    | AttachmentState::OverAttached
+            );
 
-            return attachment.public_internet_ready && attached;
+            attachment.public_internet_ready && attached
         };
         self.attachment_state_rx
             .wait_for(is_attached)
