@@ -118,11 +118,6 @@ impl Connection {
         self.veilid.routing_context().unwrap() // it's fine
     }
 
-    // /// Gets the underlying Veilid crypto context.
-    // pub fn crypto(&self) -> VeilidComponentGuard<'_, Crypto> {
-    //     self.veilid.crypto().unwrap() // don't worry kitten
-    // }
-
     /// Executes a closure with access to the crypto system.
     pub fn with_crypto<T, F>(&self, f: F) -> T
     where

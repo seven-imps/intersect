@@ -46,21 +46,9 @@ impl Encrypted {
         salt: &[u8],
         connection: &Connection,
     ) -> Result<(Self, SharedSecret), EncryptionError> {
-        // i don't care to enforce any password rules other than length.
-        // if you wanna throw multi-byte emojis or obscure scripts in there then go wild. as long as it's valid utf-8 i'm happy.
-        guard!(
-            // using str.chars().count() instead of str.len() to avoid overestimating the entropy of multi-byte characters.
-            password.chars().count() >= 15,
-            Err(EncryptionError::PasswordTooWeak(
-                "must be at least 15 characters".to_string()
-            ))
-        );
-
-        let key = connection
-            .with_crypto(|c| c.derive_shared_secret(password.as_bytes(), salt))
-            .map_err(|e| EncryptionError::EncryptionFailed(e.to_string()))?;
-        let encrypted = Self::encrypt(data, &key, connection)?;
-        Ok((encrypted, key))
+        let hash = Self::password_hash(password, salt, connection)?;
+        let encrypted = Self::encrypt(data, &hash, connection)?;
+        Ok((encrypted, hash))
     }
 
     pub fn decrypt<T: Deserialise>(
@@ -73,6 +61,58 @@ impl Encrypted {
             .map_err(|e| EncryptionError::DecryptionFailed(e.to_string()))?;
         Ok(T::deserialise(&bytes)?)
     }
+
+    pub fn decrypt_with_password<T: Deserialise>(
+        &self,
+        password: &str,
+        salt: &[u8],
+        connection: &Connection,
+    ) -> Result<T, EncryptionError> {
+        let hash = Self::password_hash(password, salt, connection)?;
+        self.decrypt(&hash, connection)
+    }
+
+    fn validate_password(password: &str) -> Result<(), EncryptionError> {
+        // i don't care to enforce any password rules other than length.
+        // if you wanna throw multi-byte emojis or obscure scripts in there then go wild. as long as it's valid utf-8 i'm happy.
+        guard!(
+            // using str.chars().count() instead of str.len() to avoid overestimating the entropy of multi-byte characters.
+            // just don't make them too short
+            password.chars().count() >= 15,
+            Err(EncryptionError::PasswordTooWeak(
+                "must be at least 15 characters".to_string()
+            ))
+        );
+        // also don't make them or oops-some-parser-is-oom long
+        guard!(
+            password.len() <= 1024,
+            Err(EncryptionError::PasswordTooLong(
+                "can't be more than 1024 bytes".to_string()
+            ))
+        );
+        // 🫡
+        Ok(())
+    }
+
+    fn password_hash(
+        password: &str,
+        salt: &[u8],
+        connection: &Connection,
+    ) -> Result<SharedSecret, EncryptionError> {
+        Self::validate_password(password)?;
+        guard!(
+            // limits taken from the underlying implementation in VLD0
+            salt.len() >= 4 && salt.len() <= 64,
+            Err(EncryptionError::InvalidSalt(
+                "must be at least 4 bytes and at most 64 bytes".to_string()
+            ))
+        );
+
+        let hash = connection
+            .with_crypto(|c| c.derive_shared_secret(password.as_bytes(), salt))
+            .map_err(|e| EncryptionError::EncryptionFailed(e.to_string()))?;
+        Ok(hash)
+    }
 }
 
 impl SerialisableV1 for Encrypted {
@@ -80,7 +120,7 @@ impl SerialisableV1 for Encrypted {
 
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         Ok(Self::Proto {
-            nonce: Some(proto::v1::veilid::Nonce::from(&self.nonce)),
+            nonce: Some(proto::v1::veilid::Nonce::from((&self.nonce).try_into()?)),
             ciphertext: self.ciphertext.clone(),
         })
     }
@@ -114,6 +154,10 @@ pub enum EncryptionError {
     DeserialisationFailed(#[from] DeserialisationError),
     #[error("password is too weak: {0}")]
     PasswordTooWeak(String),
+    #[error("password is too long: {0}")]
+    PasswordTooLong(String),
+    #[error("invalid salt: {0}")]
+    InvalidSalt(String),
 }
 
 #[cfg(test)]

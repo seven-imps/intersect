@@ -7,9 +7,11 @@
 //     optional string bio = 3;
 // }
 
+use guard_clause::guard;
 use veilid_core::PublicKey;
 
 use crate::{
+    models::ValidationError,
     proto,
     serialisation::{
         DeserialisationError, SerialisableV1, SerialisationError, impl_v1_proto_conversions,
@@ -21,18 +23,37 @@ pub struct AccountPublic {
     public_key: PublicKey,
     name: Option<String>,
     bio: Option<String>,
+    // home: Option<Trace>,
 }
 
-// TODO: how do i add validation to this? like max lengths for name and bio
-//
-
 impl AccountPublic {
-    pub fn new(public_key: PublicKey, name: Option<String>, bio: Option<String>) -> Self {
-        Self {
+    pub fn new(
+        public_key: PublicKey,
+        name: Option<String>,
+        bio: Option<String>,
+    ) -> Result<Self, ValidationError> {
+        // max 64 bytes for name
+        // (note: this is distinct from 64 characters because of multi-byte characters!)
+        guard!(
+            name.as_ref().map_or(true, |n| n.len() <= 64),
+            Err(ValidationError::TooLong(
+                "name can be at most 64 bytes".to_string()
+            ))
+        );
+
+        // max 8KiB for bio
+        guard!(
+            bio.as_ref().map_or(true, |n| n.len() <= 8 * 1024),
+            Err(ValidationError::TooLong(
+                "bio can be at most 8 kilobytes".to_string()
+            ))
+        );
+
+        Ok(Self {
             public_key,
             name,
             bio,
-        }
+        })
     }
 
     pub fn public_key(&self) -> &PublicKey {
@@ -56,6 +77,7 @@ impl SerialisableV1 for AccountPublic {
             public_key: Some(proto::v1::veilid::PublicKey::from(self.public_key())),
             name: self.name().cloned(),
             bio: self.bio().cloned(),
+            home: None, // TODO: implement home and add it here
         })
     }
 
@@ -64,7 +86,7 @@ impl SerialisableV1 for AccountPublic {
             .public_key
             .ok_or(DeserialisationError::MissingField("public_key".to_owned()))?
             .into();
-        Ok(Self::new(public_key, proto.name, proto.bio))
+        Ok(Self::new(public_key, proto.name, proto.bio)?)
     }
 }
 

@@ -48,5 +48,6 @@ message KeyPair {
 message RecordKey {
   fixed32 kind = 1;
   bytes key = 2;
+  // veilid doesn't enforce this, but intersect assumes that the default-encryption key is always included
   bytes default_encryption = 3;
 }

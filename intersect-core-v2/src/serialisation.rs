@@ -127,6 +127,8 @@ macro_rules! impl_v1_proto_conversions {
 }
 pub(crate) use impl_v1_proto_conversions;
 
+use crate::models::ValidationError;
+
 #[derive(Error, Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum SerialisationError {
@@ -157,4 +159,7 @@ pub enum DeserialisationError {
 
     #[error("missing field: {0}")]
     MissingField(String),
+
+    #[error("model validation error: {0}")]
+    ValidationError(#[from] ValidationError),
 }
