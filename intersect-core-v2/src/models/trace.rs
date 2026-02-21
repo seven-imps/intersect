@@ -14,14 +14,15 @@
 //     // so that indexes can be referenced without neccessarily including their encryption key
 //     Access access = 3;
 // }
-
+use base58::{FromBase58, ToBase58};
 use veilid_core::RecordKey;
 
 use crate::{
     models::{Access, ValidationError},
     proto,
     serialisation::{
-        DeserialisationError, SerialisableV1, SerialisationError, impl_v1_proto_conversions,
+        DeserialisationError, Deserialise, SerialisableV1, SerialisationError, Serialise,
+        impl_v1_proto_conversions,
     },
 };
 
@@ -108,3 +109,26 @@ impl SerialisableV1 for Trace {
 }
 
 impl_v1_proto_conversions! {Trace}
+
+// string conversions
+
+impl std::fmt::Display for Trace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.serialise().map_err(|_| std::fmt::Error)?.to_base58()
+        )
+    }
+}
+
+impl std::str::FromStr for Trace {
+    type Err = DeserialisationError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = s
+            .from_base58()
+            .map_err(|_| DeserialisationError::Failed("invalid base58 encoding".to_string()))?;
+        Self::deserialise(&bytes)
+    }
+}
