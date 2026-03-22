@@ -15,10 +15,10 @@
 //     Access access = 3;
 // }
 use base58::{FromBase58, ToBase58};
-use veilid_core::RecordKey;
+use veilid_core::{RecordKey, SharedSecret};
 
 use crate::{
-    models::{Access, ValidationError},
+    models::{Access, EncryptionError, ValidationError},
     proto,
     serialisation::{
         DeserialisationError, Deserialise, SerialisableV1, SerialisationError, Serialise,
@@ -52,6 +52,24 @@ impl Trace {
             record: record.clone(),
             access,
         })
+    }
+
+    pub fn unlocked(record_type: RecordType, record: &RecordKey, secret: &SharedSecret) -> Self {
+        Self::new(record_type, record, Access::new_unlocked(secret)).unwrap()
+    }
+
+    pub fn locked(record_type: RecordType, record: &RecordKey) -> Self {
+        Self::new(record_type, record, Access::new_locked()).unwrap()
+    }
+
+    pub fn protected(
+        record_type: RecordType,
+        record: &RecordKey,
+        secret: &SharedSecret,
+        password: &str,
+    ) -> Result<Self, EncryptionError> {
+        let access = Access::new_protected(secret, password)?;
+        Ok(Self::new(record_type, record, access).unwrap())
     }
 
     pub fn record_type(&self) -> &RecordType {

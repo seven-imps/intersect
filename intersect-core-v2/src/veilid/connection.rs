@@ -1,13 +1,10 @@
-use std::{
-    path::Path,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex, OnceLock};
 use thiserror::Error;
 
 use tokio::sync::watch;
 use veilid_core::{
-    AttachmentState, CryptoKind, CryptoSystemGuard, VeilidAPI, VeilidConfig, VeilidStateAttachment,
-    VeilidUpdate,
+    AttachmentState, CryptoKind, CryptoSystemGuard, PublicKey, VeilidAPI, VeilidConfig,
+    VeilidStateAttachment, VeilidUpdate,
 };
 
 use crate::veilid::{
@@ -17,19 +14,51 @@ use crate::veilid::{
 
 pub const CRYPTO_KIND: CryptoKind = veilid_core::CRYPTO_KIND_VLD0;
 
+#[derive(Debug, Clone)]
+pub struct ConnectionParams {
+    pub ephemeral: bool,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for ConnectionParams {
+    fn default() -> Self {
+        Self { ephemeral: false }
+    }
+}
+
+// any network ops will go though Connection, but we do want this static global
+// just so we can build the with_crypto helper below and avoid passing the crypto system around everywhere
+static VEILID: OnceLock<VeilidAPI> = OnceLock::new();
+
+/// executes a closure with access to the crypto system.
+///
+/// trade-off:
+/// `VEILID` is a process-wide singleton set on first `Connection::init`. this avoids threading
+/// a `VeilidAPI` handle through every crypto call site, but it means calling `with_crypto`
+/// after `Connection::close` (which calls `veilid.shutdown()`) will panic.
+pub fn with_crypto<T, F>(f: F) -> T
+where
+    F: Fn(CryptoSystemGuard<'_>) -> T,
+{
+    let veilid = VEILID.get().expect("Veilid API not initialized");
+    let crypto_component = veilid.crypto().unwrap(); // don't worry kitten, it's fine.
+    let crypto_system = crypto_component.get(CRYPTO_KIND).unwrap(); // the unwraps can't hurt you.
+    f(crypto_system)
+}
+
 // most of this is shamelessly stolen from https://codeberg.org/cmars/veilnet/src/branch/main/src/connection/veilid/connection.rs
 // thank you for the wonderful code <3
 
+#[derive(Clone)] // cloneable cause all fields are Arc<Mutex<>> (VeilidAPI is internally Arc<Mutex<>>)
 pub struct Connection {
     veilid: VeilidAPI,
     update_handlers: Arc<Mutex<HandlerChain>>,
-    attachment_state_rx: watch::Receiver<VeilidStateAttachment>,
+    attachment_state_rx: Arc<Mutex<watch::Receiver<VeilidStateAttachment>>>,
 }
 
 impl Connection {
-    pub async fn init() -> Result<Self, ConnectionError> {
+    pub async fn init(params: ConnectionParams) -> Result<Self, ConnectionError> {
         // setup_logging();
-
         // set up the veilid event handler chain
         let update_handlers = Arc::new(Mutex::new(HandlerChain::new()));
         let update_source = Arc::new(UpdateDispatch::new(update_handlers.clone()));
@@ -40,14 +69,15 @@ impl Connection {
         let (attachment_watcher, attachment_state_rx) = StateAttachmentWatcher::new();
 
         // initialise the api
-        let veilid = veilid_core::api_startup(update_callback, Self::config())
+        let veilid = veilid_core::api_startup(update_callback, Self::config(params))
             .await
             .map_err(|e| ConnectionError::StartupFailed(e.to_string()))?;
+        VEILID.get_or_init(|| veilid.clone());
 
         let connection = Self {
             veilid,
             update_handlers,
-            attachment_state_rx,
+            attachment_state_rx: Arc::new(Mutex::new(attachment_state_rx)),
         };
 
         // add default handlers
@@ -64,11 +94,17 @@ impl Connection {
         Ok(connection)
     }
 
-    fn config() -> VeilidConfig {
+    fn config(params: ConnectionParams) -> VeilidConfig {
+        use std::path::Path;
+        let namespace = if params.ephemeral {
+            format!("intersect-{:x}", rand::random::<u64>())
+        } else {
+            "intersect".into()
+        };
         let root_path = Path::new("./.intersect");
         VeilidConfig {
             program_name: "intersect".into(),
-            namespace: "intersect".into(),
+            namespace,
             protected_store: veilid_core::VeilidConfigProtectedStore {
                 // allow_insecure_fallback: true,
                 directory: root_path.join("protected").to_string_lossy().to_string(),
@@ -86,6 +122,11 @@ impl Connection {
         }
     }
 
+    /// Closes the connection and cleans up resources.
+    pub async fn close(self) -> () {
+        self.veilid.shutdown().await;
+    }
+
     pub fn add_update_handler(&self, handler: Box<dyn UpdateHandler + Send + Sync>) {
         self.update_handlers.lock().unwrap().add(handler);
     }
@@ -94,7 +135,7 @@ impl Connection {
     ///
     /// This blocks until the Veilid node is fully connected and can communicate
     /// over the public internet. Call this before performing network operations.
-    pub async fn wait_for_attachment(&mut self) -> () {
+    pub async fn wait_for_attachment(&self) {
         let is_attached = |attachment: &VeilidStateAttachment| {
             let attached = matches!(
                 attachment.state,
@@ -104,13 +145,11 @@ impl Connection {
                     | AttachmentState::FullyAttached
                     | AttachmentState::OverAttached
             );
-
             attachment.public_internet_ready && attached
         };
-        self.attachment_state_rx
-            .wait_for(is_attached)
-            .await
-            .unwrap(); // should never fail unless there's a logic error in the code
+        // clone the receiver so the mutex is not held across the await
+        let mut rx = self.attachment_state_rx.lock().unwrap().clone();
+        rx.wait_for(is_attached).await.unwrap();
     }
 
     /// Gets the underlying Veilid routing context.
@@ -118,19 +157,8 @@ impl Connection {
         self.veilid.routing_context().unwrap() // it's fine
     }
 
-    /// Executes a closure with access to the crypto system.
-    pub fn with_crypto<T, F>(&self, f: F) -> T
-    where
-        F: Fn(CryptoSystemGuard<'_>) -> T,
-    {
-        let crypto_component = self.veilid.crypto().unwrap(); // don't worry kitten, it's fine.
-        let crypto_system = crypto_component.get(CRYPTO_KIND).unwrap(); // the unwraps can't hurt you.
-        f(crypto_system)
-    }
-
-    /// Closes the connection and cleans up resources.
-    pub async fn close(self) -> () {
-        self.veilid.shutdown().await;
+    pub fn generate_member_id(&self, key: &PublicKey) -> veilid_core::MemberId {
+        self.veilid.generate_member_id(key).unwrap()
     }
 }
 

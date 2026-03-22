@@ -21,7 +21,7 @@ use crate::{
     serialisation::{
         DeserialisationError, SerialisableV1, SerialisationError, impl_v1_proto_conversions,
     },
-    veilid::Connection,
+    veilid::with_crypto,
 };
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -42,12 +42,8 @@ impl Access {
         }
     }
 
-    pub fn new_protected(
-        secret: &SharedSecret,
-        password: &str,
-        connection: &Connection,
-    ) -> Result<Self, EncryptionError> {
-        let protected = ProtectedSecret::new(secret, password, connection)?;
+    pub fn new_protected(secret: &SharedSecret, password: &str) -> Result<Self, EncryptionError> {
+        let protected = ProtectedSecret::new(secret, password)?;
         Ok(Self::Protected {
             protected_secret: protected,
         })
@@ -116,28 +112,19 @@ pub struct ProtectedSecret {
 }
 
 impl ProtectedSecret {
-    pub fn new(
-        secret: &SharedSecret,
-        password: &str,
-        connection: &Connection,
-    ) -> Result<Self, EncryptionError> {
-        let salt = connection.with_crypto(|c| c.random_nonce());
-        let (encrypted, _secret) =
-            Encrypted::encrypt_with_password(secret, password, &salt, connection)?;
+    pub fn new(secret: &SharedSecret, password: &str) -> Result<Self, EncryptionError> {
+        let salt = with_crypto(|c| c.random_nonce());
+        let (encrypted, _secret) = Encrypted::encrypt_with_password(secret, password, &salt)?;
         Ok(Self {
             salt,
             encrypted_secret: encrypted,
         })
     }
 
-    pub fn unlock(
-        &self,
-        password: &str,
-        connection: &Connection,
-    ) -> Result<SharedSecret, AccessError> {
+    pub fn unlock(&self, password: &str) -> Result<SharedSecret, AccessError> {
         let secret = self
             .encrypted_secret
-            .decrypt_with_password(password, &self.salt, connection)?;
+            .decrypt_with_password(password, &self.salt)?;
         Ok(secret)
     }
 }

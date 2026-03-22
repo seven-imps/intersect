@@ -3,6 +3,7 @@ mod proto;
 
 // public modules
 pub mod api;
+pub mod documents;
 pub mod models;
 pub mod serialisation;
 pub mod veilid;

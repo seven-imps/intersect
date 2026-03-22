@@ -8,7 +8,7 @@
 // }
 
 use guard_clause::guard;
-use veilid_core::PublicKey;
+use veilid_core::{PublicKey, SecretKey};
 
 use crate::{
     models::{Trace, ValidationError},
@@ -106,4 +106,47 @@ impl_v1_proto_conversions! {AccountPublic}
 //     Trace bookmarks = 2;
 // }
 
-// TODO: implement AccountPrivate
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct AccountPrivate {
+    private_key: SecretKey,
+    bookmarks: Option<Trace>,
+}
+
+impl AccountPrivate {
+    pub fn new(private_key: SecretKey, bookmarks: Option<Trace>) -> Result<Self, ValidationError> {
+        Ok(Self {
+            private_key,
+            bookmarks,
+        })
+    }
+
+    pub fn private_key(&self) -> &SecretKey {
+        &self.private_key
+    }
+
+    pub fn bookmarks(&self) -> Option<&Trace> {
+        self.bookmarks.as_ref()
+    }
+}
+
+impl SerialisableV1 for AccountPrivate {
+    type Proto = proto::v1::intersect::AccountPrivate;
+
+    fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
+        Ok(Self::Proto {
+            private_key: Some(proto::v1::veilid::SecretKey::from(self.private_key())),
+            bookmarks: self.bookmarks().map(TryInto::try_into).transpose()?,
+        })
+    }
+
+    fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
+        let private_key: SecretKey = proto
+            .private_key
+            .ok_or(DeserialisationError::MissingField("private_key".to_owned()))?
+            .into();
+        let bookmarks: Option<Trace> = proto.bookmarks.map(TryInto::try_into).transpose()?;
+        Ok(Self::new(private_key, bookmarks)?)
+    }
+}
+
+impl_v1_proto_conversions! {AccountPrivate}

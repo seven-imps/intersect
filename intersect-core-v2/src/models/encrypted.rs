@@ -8,7 +8,7 @@ use crate::{
         DeserialisationError, Deserialise, SerialisableV1, SerialisationError, Serialise,
         impl_v1_proto_conversions,
     },
-    veilid::Connection,
+    veilid::with_crypto,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -21,22 +21,19 @@ impl Encrypted {
     pub fn encrypt<T: Serialise>(
         data: &T,
         shared_secret: &SharedSecret,
-        connection: &Connection,
     ) -> Result<Self, EncryptionError> {
         let body = data.serialise()?;
-        let nonce = connection.with_crypto(|c| c.random_nonce());
-        let ciphertext = connection
-            .with_crypto(|c| c.encrypt_aead(&body, &nonce, shared_secret, None))
+        let nonce = with_crypto(|c| c.random_nonce());
+        let ciphertext = with_crypto(|c| c.encrypt_aead(&body, &nonce, shared_secret, None))
             .map_err(|e| EncryptionError::EncryptionFailed(e.to_string()))?;
         Ok(Encrypted { nonce, ciphertext })
     }
 
     pub fn encrypt_with_random<T: Serialise>(
         data: &T,
-        connection: &Connection,
     ) -> Result<(Self, SharedSecret), EncryptionError> {
-        let key = connection.with_crypto(|c| c.random_shared_secret());
-        let encrypted = Self::encrypt(data, &key, connection)?;
+        let key = with_crypto(|c| c.random_shared_secret());
+        let encrypted = Self::encrypt(data, &key)?;
         Ok((encrypted, key))
     }
 
@@ -44,21 +41,19 @@ impl Encrypted {
         data: &T,
         password: &str,
         salt: &[u8],
-        connection: &Connection,
     ) -> Result<(Self, SharedSecret), EncryptionError> {
-        let hash = Self::password_hash(password, salt, connection)?;
-        let encrypted = Self::encrypt(data, &hash, connection)?;
+        let hash = Self::password_hash(password, salt)?;
+        let encrypted = Self::encrypt(data, &hash)?;
         Ok((encrypted, hash))
     }
 
     pub fn decrypt<T: Deserialise>(
         &self,
         shared_secret: &SharedSecret,
-        connection: &Connection,
     ) -> Result<T, EncryptionError> {
-        let bytes = connection
-            .with_crypto(|c| c.decrypt_aead(&self.ciphertext, &self.nonce, shared_secret, None))
-            .map_err(|e| EncryptionError::DecryptionFailed(e.to_string()))?;
+        let bytes =
+            with_crypto(|c| c.decrypt_aead(&self.ciphertext, &self.nonce, shared_secret, None))
+                .map_err(|e| EncryptionError::DecryptionFailed(e.to_string()))?;
         Ok(T::deserialise(&bytes)?)
     }
 
@@ -66,10 +61,9 @@ impl Encrypted {
         &self,
         password: &str,
         salt: &[u8],
-        connection: &Connection,
     ) -> Result<T, EncryptionError> {
-        let hash = Self::password_hash(password, salt, connection)?;
-        self.decrypt(&hash, connection)
+        let hash = Self::password_hash(password, salt)?;
+        self.decrypt(&hash)
     }
 
     fn validate_password(password: &str) -> Result<(), EncryptionError> {
@@ -94,11 +88,7 @@ impl Encrypted {
         Ok(())
     }
 
-    fn password_hash(
-        password: &str,
-        salt: &[u8],
-        connection: &Connection,
-    ) -> Result<SharedSecret, EncryptionError> {
+    fn password_hash(password: &str, salt: &[u8]) -> Result<SharedSecret, EncryptionError> {
         Self::validate_password(password)?;
         guard!(
             // limits taken from the underlying implementation in VLD0
@@ -108,8 +98,7 @@ impl Encrypted {
             ))
         );
 
-        let hash = connection
-            .with_crypto(|c| c.derive_shared_secret(password.as_bytes(), salt))
+        let hash = with_crypto(|c| c.derive_shared_secret(password.as_bytes(), salt))
             .map_err(|e| EncryptionError::EncryptionFailed(e.to_string()))?;
         Ok(hash)
     }

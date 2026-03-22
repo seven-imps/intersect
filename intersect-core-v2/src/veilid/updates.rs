@@ -22,6 +22,37 @@ pub trait UpdateHandler {
     fn shutdown(&self) {}
 }
 
+// just for convenience so we can use Arc<> for our handlers
+impl<T: UpdateHandler> UpdateHandler for Arc<T> {
+    fn log(&self, log: &VeilidLog) {
+        self.as_ref().log(log)
+    }
+    fn app_message(&self, message: &VeilidAppMessage) {
+        self.as_ref().app_message(message)
+    }
+    fn app_call(&self, call: &VeilidAppCall) {
+        self.as_ref().app_call(call)
+    }
+    fn state_attachment(&self, attachment: &VeilidStateAttachment) {
+        self.as_ref().state_attachment(attachment)
+    }
+    fn state_network(&self, network: &VeilidStateNetwork) {
+        self.as_ref().state_network(network)
+    }
+    fn state_config(&self, config: &VeilidStateConfig) {
+        self.as_ref().state_config(config)
+    }
+    fn route_change(&self, change: &VeilidRouteChange) {
+        self.as_ref().route_change(change)
+    }
+    fn value_change(&self, change: &VeilidValueChange) {
+        self.as_ref().value_change(change)
+    }
+    fn shutdown(&self) {
+        self.as_ref().shutdown()
+    }
+}
+
 /// Dispatch update callback events to an UpdateHandler.
 pub struct UpdateDispatch {
     handler: Arc<Mutex<dyn UpdateHandler + Send + Sync>>,

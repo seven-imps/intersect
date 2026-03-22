@@ -4,3 +4,7 @@ pub mod updates;
 pub use updates::*;
 pub mod attachment_watcher;
 pub use attachment_watcher::*;
+mod record_pool;
+pub(crate) use record_pool::*;
+mod watch_router;
+pub use watch_router::{WatchCoordinators, WatchRouter};

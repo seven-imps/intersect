@@ -100,7 +100,7 @@ message Link {
 
 // ==== account record ====
 // 0: AccountPublic, encrypted key given in trace, as usual
-// 1: AccountPrivate, encrypted with a password hash that only the owner knows, never persisted to the DHT
+// 1: AccountPrivate, encrypted with secret derived from the private key and record key
 
 message AccountPublic {
   // full public key because it can't be derived from the memberid in the schema
@@ -112,7 +112,7 @@ message AccountPublic {
 }
 
 message AccountPrivate {
-  // contains the private key so that the account password can be independent from the keypair
+  // contains the private key so we can grab the private key after logging in with the derived secret
   veilid.SecretKey private_key = 1;
   // Links record of bookmarked traces
   optional Trace bookmarks = 2;
