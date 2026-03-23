@@ -1,5 +1,5 @@
 use std::{
-    any::Any,
+    any::{Any, type_name},
     collections::HashMap,
     sync::{Arc, Mutex},
 };
@@ -69,19 +69,22 @@ impl UpdateHandler for WatchRouter {
     fn value_change(&self, change: &VeilidValueChange) {
         let routes = self.routes.lock().unwrap();
         if let Some(tx) = routes.get(&change.key) {
+            // not sending the actual data here, just a notification which will trigger a re-read in the coordinator
             let _ = tx.send(());
         }
     }
 }
 
-// ==== Coordinators ====
-// one coordinator task per active mutable record. the task does a single
-// D::read() per veilid notification and fans the result out to all open()
-// subscribers via a shared watch channel. multiple open() calls on the same
-// record subscribe to the same channel. no duplicate reads.
+// ==== WatchCoordinators ====
+// one coordinator task per record. does a single D::read() per veilid notification
+// and fans the result out to all subscribers to avoid duplicate reads for multiple subscribers to the same record.
 
 type CoordinatorSender<D> = Arc<watch::Sender<Result<<D as Document>::View, DocumentError>>>;
-type CoordinatorMap = Arc<Mutex<HashMap<RecordKey, Box<dyn Any + Send + Sync>>>>;
+// keying on record key + document type here to avoid coordinator tasks being overwritten by different document types.
+// in practice this should never happen since each record only has one valid type
+// but we want to make sure things don't break even if we somehow erroneaously try to open the same record with different types
+// (using type_name as opposed to TypeId to avoid a 'static bound on D bubling up all the way to the intersect api)
+type CoordinatorMap = Arc<Mutex<HashMap<(RecordKey, &'static str), Box<dyn Any + Send + Sync>>>>;
 
 pub struct WatchCoordinators {
     inner: CoordinatorMap,
@@ -109,7 +112,7 @@ impl WatchCoordinators {
         self.inner
             .lock()
             .unwrap()
-            .get(key)?
+            .get(&(key.clone(), type_name::<D>()))?
             .downcast_ref::<CoordinatorSender<D>>()
             .map(|s| s.subscribe())
     }
@@ -129,7 +132,7 @@ impl WatchCoordinators {
 
         // double-check: another open() may have raced us during the async initial read
         if let Some(s) = map
-            .get(reference.record())
+            .get(&(reference.record().clone(), type_name::<D>()))
             .and_then(|b| b.downcast_ref::<CoordinatorSender<D>>())
         {
             return s.subscribe();
@@ -137,8 +140,11 @@ impl WatchCoordinators {
 
         let (tx, rx) = watch::channel(Ok(initial));
         let sender: CoordinatorSender<D> = Arc::new(tx);
-        map.insert(reference.record().clone(), Box::new(Arc::clone(&sender)));
-        drop(map);
+        map.insert(
+            (reference.record().clone(), type_name::<D>()),
+            Box::new(Arc::clone(&sender)),
+        );
+        drop(map); // drop the lock
 
         let inner = Arc::clone(&self.inner);
         spawn_detached_local("intersect-coordinator", async move {
@@ -167,6 +173,7 @@ async fn coordinator_task<D: Document>(
             break; // WatchRouter entry dropped
         }
 
+        // notification triggers re-read of the document
         match D::read(&reference, identity.as_ref(), &pool).await {
             Ok(new_view) => {
                 if Some(&new_view) != last_view.as_ref() {
@@ -186,13 +193,16 @@ async fn coordinator_task<D: Document>(
         }
     }
 
-    // remove from coordinator map — this drops the map's Arc clone.
+    // remove from coordinator map, this drops the map's Arc clone.
     // when this function returns, the local sender Arc drops too.
     // once all Arc clones are gone, the watch::Sender drops and any remaining
     // receivers' changed() will return Err.
-    coordinators.lock().unwrap().remove(reference.record());
+    coordinators
+        .lock()
+        .unwrap()
+        .remove(&(reference.record().clone(), type_name::<D>()));
 
-    drop(notify_rx);
+    drop(notify_rx); // make sure to decrement listeners before we check if empty
     if router.deregister_if_empty(reference.record()) {
         let _ = pool.cancel_watch(&reference).await;
     }
