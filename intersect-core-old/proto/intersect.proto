@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package intersect.v1;
+
+import "veilid.proto";
+
+message Encrypted {
+  veilid.Nonce nonce = 1;
+  optional bytes ciphertext = 2;
+}
+
+message Fragment { optional bytes data = 1; }
+
+message IndexMetadata {
+  optional string name = 1;
+  veilid.CryptoKey shard = 2;
+  Trace fragment = 3;
+  Trace links = 4;
+  // timestamps
+  // #[bw(map = |t| Timestamp::as_u64(t.clone()))]
+  // #[br(map = Timestamp::new)]
+  // created_at: Timestamp,
+  // #[bw(map = |t| Timestamp::as_u64(t.clone()))]
+  // #[br(map = Timestamp::new)]
+  // last_updated: Timestamp,
+}
+
+message LinkEntry {
+  optional string name = 1;
+  Trace trace = 2;
+  // // metadata
+  // #[bw(map = |t| Timestamp::as_u64(t.clone()))]
+  // #[br(map = Timestamp::new)]
+  // created_at: Timestamp,
+  // #[bw(map = |t| Timestamp::as_u64(t.clone()))]
+  // #[br(map = Timestamp::new)]
+  // last_updated: Timestamp,
+}
+
+enum RecordType {
+  UNKNOWN = 0;
+  FRAGMENT = 1;
+  INDEX = 2;
+  LINKS = 3;
+}
+
+message Access {
+  message Locked {}
+  message Unlocked { veilid.CryptoKey secret = 1; }
+  message Protected { Encrypted encrypted_secret = 1; }
+
+  oneof access_level {
+    Locked locked = 1;
+    Unlocked unlocked = 2;
+    Protected protected = 3;
+  }
+}
+
+message Trace {
+  RecordType domain = 1;
+  veilid.CryptoKey key = 2;
+  Access access = 3;
+}

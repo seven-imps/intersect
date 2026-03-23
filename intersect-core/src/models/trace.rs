@@ -1,73 +1,83 @@
-use std::{any::TypeId, marker::PhantomData};
+// enum RecordType {
+//     UNKNOWN = 0;
+//     ACCOUNT = 1;
+//     FRAGMENT = 2;
+//     INDEX = 3;
+//     LINKS = 4;
+// }
 
+// message Trace {
+//     RecordType type = 1;
+//     // record key including default-encryption key (ensures that caching nodes never see plaintext)
+//     veilid.RecordKey record = 2;
+//     // intersect uses its own encryption on top of the default-encryption
+//     // so that indexes can be referenced without neccessarily including their encryption key
+//     Access access = 3;
+// }
 use base58::{FromBase58, ToBase58};
-use thiserror::Error;
+use veilid_core::{RecordKey, SharedSecret};
 
 use crate::{
+    models::{Access, EncryptionError, ValidationError},
     proto,
-    record::Record,
-    serialisation::{DeserialisationError, Deserialise, Serialise},
-    Domain, DomainRecord, IntersectError, RecordType, Secret, VeilidRecordKey,
+    serialisation::{
+        DeserialisationError, Deserialise, SerialisableV1, SerialisationError, Serialise,
+        impl_v1_proto_conversions,
+    },
 };
 
-use super::Access;
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum RecordType {
+    Account,
+    Fragment,
+    Index,
+    Links,
+}
 
-// traces are essentially "links"
-// they're what you would share with someone to show them a page
-
-pub struct Trace<T: RecordType> {
-    _domain: PhantomData<T>,
-    key: VeilidRecordKey,
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct Trace {
+    record_type: RecordType,
+    record: RecordKey,
     access: Access,
 }
 
-// manual clone impl to avoid the RecordType bound
-impl<T: RecordType> Clone for Trace<T> {
-    fn clone(&self) -> Self {
-        Self {
-            _domain: PhantomData,
-            key: self.key.clone(),
-            access: self.access.clone(),
-        }
-    }
-}
-
-// manual comparison impls to avoid the RecordType bound
-impl<T: RecordType> PartialEq for Trace<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.key == other.key && self.access == other.access
-    }
-}
-impl<T: RecordType> Eq for Trace<T> {}
-
-// core trace impl
-impl<T: RecordType> Trace<T> {
-    pub(crate) fn new(key: VeilidRecordKey, access: Access) -> Self {
-        Trace {
-            _domain: PhantomData,
-            key,
+impl Trace {
+    pub fn new(
+        record_type: RecordType,
+        record: &RecordKey,
+        access: Access,
+    ) -> Result<Self, ValidationError> {
+        Ok(Self {
+            record_type,
+            record: record.clone(),
             access,
-        }
+        })
     }
 
-    pub fn from_str(trace: &str) -> Result<Self, TraceError> {
-        trace.try_into()
+    pub fn unlocked(record_type: RecordType, record: &RecordKey, secret: &SharedSecret) -> Self {
+        Self::new(record_type, record, Access::new_unlocked(secret)).unwrap()
     }
 
-    pub async fn try_open<D: Domain<Record = T>>(&self) -> Result<T, IntersectError>
-    where
-        T: DomainRecord<D>,
-    {
-        let Access::Unlocked(secret) = self.access else {
-            return Err(IntersectError::LockedTrace);
-        };
-
-        let record = Record::open(&self.key).await?;
-        Ok(T::from_record(record, &secret).await?)
+    pub fn locked(record_type: RecordType, record: &RecordKey) -> Self {
+        Self::new(record_type, record, Access::new_locked()).unwrap()
     }
 
-    pub fn key(&self) -> &VeilidRecordKey {
-        &self.key
+    pub fn protected(
+        record_type: RecordType,
+        record: &RecordKey,
+        secret: &SharedSecret,
+        password: &str,
+    ) -> Result<Self, EncryptionError> {
+        let access = Access::new_protected(secret, password)?;
+        Ok(Self::new(record_type, record, access).unwrap())
+    }
+
+    pub fn record_type(&self) -> &RecordType {
+        &self.record_type
+    }
+
+    pub fn record(&self) -> &RecordKey {
+        &self.record
     }
 
     pub fn access(&self) -> &Access {
@@ -75,162 +85,97 @@ impl<T: RecordType> Trace<T> {
     }
 }
 
-impl<T: RecordType> std::fmt::Debug for Trace<T> {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        // use display impl
-        write!(fmt, "{}", self)
-    }
-}
+impl SerialisableV1 for Trace {
+    type Proto = proto::v1::intersect::Trace;
 
-impl<T: RecordType> std::fmt::Display for Trace<T> {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(fmt, "{}", self.serialise().to_base58())
-    }
-}
-
-impl<T: RecordType> TryFrom<&str> for Trace<T> {
-    type Error = TraceError;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let bytes = value
-            .from_base58()
-            .map_err(|_| TraceError::DeserialisationFailed("invalid base58".to_owned()))?;
-
-        Self::deserialise(bytes.as_slice())
-            .map_err(|e| TraceError::DeserialisationFailed(e.to_string()))
-    }
-}
-
-// (de)serialisation
-
-// // some magic to map types to enum values
-// fn get_domain_value<T: RecordType + 'static>() -> proto::intersect::v1::RecordType {
-//     use proto::intersect::v1::RecordType;
-//     match TypeId::of::<T>() {
-//         id if id == TypeId::of::<crate::FragmentRecord>() => RecordType::Fragment,
-//         id if id == TypeId::of::<crate::IndexRecord>() => RecordType::Index,
-//         id if id == TypeId::of::<crate::LinksRecord>() => RecordType::Links,
-//         _ => RecordType::Unknown,
-//     }
-// }
-
-fn trace_to_proto<T: RecordType>(
-    trace: &Trace<T>,
-    domain: proto::intersect::v1::RecordType,
-) -> proto::intersect::v1::Trace {
-    proto::intersect::v1::Trace {
-        domain: domain as i32,
-        key: Some(trace.key.key().into()),
-        access: Some(trace.access.into()),
-    }
-}
-
-impl From<&Trace<crate::IndexRecord>> for proto::intersect::v1::Trace {
-    fn from(value: &Trace<crate::IndexRecord>) -> Self {
-        trace_to_proto(value, proto::intersect::v1::RecordType::Index)
-    }
-}
-
-impl Serialise for Trace<crate::IndexRecord> {
-    fn serialise_v1_proto(&self) -> impl prost::Message {
-        Into::<proto::intersect::v1::Trace>::into(self)
-    }
-}
-
-// impl<T: RecordType> Deserialise for Trace<T> {
-//     fn deserialise_v1(bytes: &[u8]) -> Result<Self, DeserialisationError> {
-//         let proto = Self::deserialise_proto::<proto::intersect::v1::Trace>(bytes)?;
-
-//         Ok(Trace {
-//             data: proto
-//                 .data
-//                 .ok_or(DeserialisationError::Failed("missing data".to_owned()))?,
-//         })
-//     }
-// }
-
-// this is intentionally not serialisable!!
-// only for internal use in an application
-pub struct UnlockedTrace<T: RecordType> {
-    _domain: PhantomData<T>,
-    key: VeilidRecordKey,
-    secret: Secret,
-}
-
-impl<T: RecordType> UnlockedTrace<T> {
-    pub fn new(key: VeilidRecordKey, secret: Secret) -> Self {
-        Self {
-            _domain: PhantomData,
-            key,
-            secret,
-        }
+    fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
+        Ok(Self::Proto {
+            r#type: match self.record_type {
+                RecordType::Account => proto::v1::intersect::RecordType::Account as i32,
+                RecordType::Fragment => proto::v1::intersect::RecordType::Fragment as i32,
+                RecordType::Index => proto::v1::intersect::RecordType::Index as i32,
+                RecordType::Links => proto::v1::intersect::RecordType::Links as i32,
+            },
+            record: Some((&self.record).try_into()?),
+            access: Some(self.access.to_proto()?),
+        })
     }
 
-    pub fn key(&self) -> &VeilidRecordKey {
-        &self.key
-    }
+    fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
+        let record_type_proto = proto::v1::intersect::RecordType::try_from(proto.r#type)
+            .map_err(|_| DeserialisationError::Failed("invalid record type".to_string()))?;
 
-    pub fn secret(&self) -> &Secret {
-        &self.secret
-    }
-
-    pub async fn open(&self) -> Result<T, IntersectError> {
-        T::open(&self.key, &self.secret).await
-    }
-}
-
-impl<T: RecordType> From<UnlockedTrace<T>> for Trace<T> {
-    fn from(value: UnlockedTrace<T>) -> Self {
-        Trace::new(value.key, Access::Unlocked(value.secret))
-    }
-}
-
-impl<T: RecordType> TryFrom<Trace<T>> for UnlockedTrace<T> {
-    type Error = IntersectError;
-
-    fn try_from(value: Trace<T>) -> Result<Self, Self::Error> {
-        let secret = match value.access() {
-            Access::Locked => Err(IntersectError::Unauthorized)?,
-            Access::Protected(_protected_secret) => Err(IntersectError::Unauthorized)?,
-            Access::Unlocked(secret) => secret,
+        let record_type = match record_type_proto {
+            proto::v1::intersect::RecordType::Account => RecordType::Account,
+            proto::v1::intersect::RecordType::Fragment => RecordType::Fragment,
+            proto::v1::intersect::RecordType::Index => RecordType::Index,
+            proto::v1::intersect::RecordType::Links => RecordType::Links,
+            _ => Err(DeserialisationError::Failed(
+                "invalid record type".to_string(),
+            ))?,
         };
-
-        Ok(UnlockedTrace::new(*value.key(), secret.clone()))
+        let record = proto
+            .record
+            .ok_or(DeserialisationError::MissingField("record".to_owned()))?
+            .into();
+        let access = proto
+            .access
+            .ok_or(DeserialisationError::MissingField("access".to_owned()))?
+            .try_into()?;
+        Ok(Self::new(record_type, &record, access)?)
     }
 }
 
-// manual clone impl to avoid the RecordType bound
-impl<T: RecordType> Clone for UnlockedTrace<T> {
-    fn clone(&self) -> Self {
-        Self {
-            _domain: PhantomData,
-            key: self.key.clone(),
-            secret: self.secret.clone(),
-        }
+impl_v1_proto_conversions! {Trace}
+
+// string conversions
+
+impl std::fmt::Display for Trace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.serialise().map_err(|_| std::fmt::Error)?.to_base58()
+        )
     }
 }
 
-impl<T: RecordType> Copy for UnlockedTrace<T> {}
+impl std::str::FromStr for Trace {
+    type Err = DeserialisationError;
 
-// manual comparison impls to avoid the RecordType bound
-impl<T: RecordType> PartialEq for UnlockedTrace<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.key == other.key && self.secret == other.secret
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = s
+            .from_base58()
+            // .inspect_err(|e| match e {
+            //     base58::FromBase58Error::InvalidBase58Character(c, _) => {
+            //         println!("invalid char: {}", c)
+            //     }
+            //     base58::FromBase58Error::InvalidBase58Length => println!("invalid length"),
+            // })
+            .map_err(|_| DeserialisationError::Failed("invalid base58 encoding".to_string()))?;
+        Self::deserialise(&bytes)
     }
 }
-impl<T: RecordType> Eq for UnlockedTrace<T> {}
 
-#[derive(Error, Debug, Clone)]
-#[non_exhaustive]
-pub enum TraceError {
-    #[error("missing key")]
-    MissingKey,
-    #[error("invalid key")]
-    InvalidKey,
-    #[error("missing secret")]
-    MissingSecret,
-    #[error("invalid secret")]
-    InvalidSecret,
-    #[error("deserialisation failed: {0}")]
-    DeserialisationFailed(String),
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::*;
+
+    #[test]
+    fn string_roundtrip() {
+        // build trace
+        let key = RecordKey::from_str(
+            "VLD0:sX9L_EV3JAy5ozyK875WErKAyFhBy4jZ-6DZajlDr9c:KpS0JtGg9OfJhpsIVCFY8FI9arViozN3kw3duglNkmY",
+        ).unwrap();
+        let trace = Trace::new(RecordType::Account, &key, Access::Locked).unwrap();
+
+        // to string ...
+        let trace_string = trace.to_string();
+        // .. and back
+        let deserialised_trace = Trace::from_str(&trace_string).unwrap();
+
+        assert_eq!(trace, deserialised_trace);
+    }
 }

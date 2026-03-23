@@ -1,83 +1,171 @@
-use base58::{FromBase58, ToBase58};
+// message Access {
+//     message Locked {}
+//     message Unlocked { veilid.SharedSecret secret = 1; }
+//     message Protected {
+//         veilid.Nonce salt = 1;          // salt for the password hash
+//         Encrypted encrypted_secret = 2; // Encrypted veilid.SharedSecret
+//     }
+
+//     oneof access_level {
+//         Locked locked = 1;
+//         Unlocked unlocked = 2;
+//         Protected protected = 3;
+//     }
+// }
+
 use thiserror::Error;
-use unicode_segmentation::UnicodeSegmentation;
+use veilid_core::{Nonce, SharedSecret};
 
-use crate::{veilid::get_crypto, Secret, Shard};
+use crate::{
+    models::{Encrypted, EncryptionError},
+    serialisation::{
+        DeserialisationError, SerialisableV1, SerialisationError, impl_v1_proto_conversions,
+    },
+    veilid::with_crypto,
+};
 
-use super::{Encrypted, EncryptionError};
-
-#[derive(PartialEq, Clone, Eq)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Access {
     Locked,
-    Unlocked(Secret),
-    Protected(ProtectedSecret),
+    Unlocked { secret: SharedSecret },
+    Protected { protected_secret: ProtectedSecret },
 }
 
-#[derive(PartialEq, Clone, Eq)]
-pub struct ProtectedSecret(Encrypted);
+impl Access {
+    pub fn new_locked() -> Self {
+        Self::Locked
+    }
+
+    pub fn new_unlocked(secret: &SharedSecret) -> Self {
+        Self::Unlocked {
+            secret: secret.clone(),
+        }
+    }
+
+    pub fn new_protected(secret: &SharedSecret, password: &str) -> Result<Self, EncryptionError> {
+        let protected = ProtectedSecret::new(secret, password)?;
+        Ok(Self::Protected {
+            protected_secret: protected,
+        })
+    }
+
+    // TODO: accessors? (how) do we handle that here?
+}
+
+impl SerialisableV1 for Access {
+    type Proto = crate::proto::v1::intersect::Access;
+
+    fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
+        let access_level = match self {
+            Self::Locked => crate::proto::v1::intersect::access::AccessLevel::Locked(
+                crate::proto::v1::intersect::access::Locked {},
+            ),
+            Self::Unlocked { secret } => {
+                crate::proto::v1::intersect::access::AccessLevel::Unlocked(
+                    crate::proto::v1::intersect::access::Unlocked {
+                        secret: Some(secret.to_proto()?),
+                    },
+                )
+            }
+            Self::Protected { protected_secret } => {
+                crate::proto::v1::intersect::access::AccessLevel::Protected(
+                    protected_secret.to_proto()?,
+                )
+            }
+        };
+        Ok(Self::Proto {
+            access_level: Some(access_level),
+        })
+    }
+
+    fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
+        let access_level = proto
+            .access_level
+            .ok_or(DeserialisationError::MissingField(
+                "access_level".to_owned(),
+            ))?;
+        match access_level {
+            crate::proto::v1::intersect::access::AccessLevel::Locked(_) => Ok(Self::Locked),
+            crate::proto::v1::intersect::access::AccessLevel::Unlocked(unlocked) => {
+                Ok(Self::Unlocked {
+                    secret: unlocked
+                        .secret
+                        .ok_or(DeserialisationError::MissingField("secret".to_owned()))?
+                        .try_into()?,
+                })
+            }
+            crate::proto::v1::intersect::access::AccessLevel::Protected(protected) => {
+                Ok(Self::Protected {
+                    protected_secret: ProtectedSecret::from_proto(protected)?,
+                })
+            }
+        }
+    }
+}
+
+impl_v1_proto_conversions! {Access}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct ProtectedSecret {
+    salt: Nonce,
+    encrypted_secret: Encrypted,
+}
 
 impl ProtectedSecret {
-    pub fn new(shard: &Shard, password: &str, secret: &Secret) -> Result<Self, AccessError> {
-        let password_hash = Self::password_hash(shard, password)?;
-        let encrypted = Encrypted::encrypt(secret, &password_hash)?;
-        Ok(Self(encrypted))
+    pub fn new(secret: &SharedSecret, password: &str) -> Result<Self, EncryptionError> {
+        let salt = with_crypto(|c| c.random_nonce());
+        let (encrypted, _secret) = Encrypted::encrypt_with_password(secret, password, &salt)?;
+        Ok(Self {
+            salt,
+            encrypted_secret: encrypted,
+        })
     }
 
-    pub fn unlock(self, shard: &Shard, password: &str) -> Result<Secret, AccessError> {
-        let password_hash = Self::password_hash(shard, password)?;
+    pub fn unlock(&self, password: &str) -> Result<SharedSecret, AccessError> {
         let secret = self
-            .0
-            .decrypt(&password_hash)
-            .map_err(|_| AccessError::InvalidPassword)?;
+            .encrypted_secret
+            .decrypt_with_password(password, &self.salt)?;
         Ok(secret)
     }
+}
 
-    fn password_hash(shard: &Shard, password: &str) -> Result<Secret, AccessError> {
-        // validate
-        // (nothing fancy, just don't make them too short or oops-some-parser-is-oom long)
-        let len = password.graphemes(true).count();
-        if len < 15 || len > 64 {
-            return Err(AccessError::InvalidPassword);
-        }
-        // hash
-        let hash = get_crypto()
-            .derive_shared_secret(password.as_bytes(), shard.as_slice())
-            .unwrap();
-        Ok(hash.into())
+impl SerialisableV1 for ProtectedSecret {
+    type Proto = crate::proto::v1::intersect::access::Protected;
+
+    fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
+        Ok(Self::Proto {
+            salt: Some((&self.salt).try_into()?),
+            encrypted_secret: Some(self.encrypted_secret.to_proto()?),
+        })
+    }
+
+    fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
+        let salt = Nonce::new(
+            &proto
+                .salt
+                .ok_or(DeserialisationError::MissingField("salt".to_owned()))?
+                .data,
+        );
+        let encrypted_secret = proto
+            .encrypted_secret
+            .ok_or(DeserialisationError::MissingField(
+                "encrypted_secret".to_owned(),
+            ))?;
+        Ok(Self {
+            salt,
+            encrypted_secret: Encrypted::from_proto(encrypted_secret)?,
+        })
     }
 }
 
-impl std::fmt::Display for Access {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(fmt, "{}", self.serialise().to_base58())
-    }
-}
-
-impl TryFrom<&str> for Access {
-    type Error = AccessError;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let bytes = value
-            .from_base58()
-            .map_err(|_| AccessError::DeserialisationFailed("invalid base58".to_owned()))?;
-
-        Self::deserialise(bytes.as_slice())
-            .map_err(|e| AccessError::DeserialisationFailed(e.to_string()))
-    }
-}
+impl_v1_proto_conversions! {ProtectedSecret}
 
 #[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum AccessError {
-    #[error("missing key")]
+    #[error("wrong password")]
     WrongPassword,
-
-    #[error("invalid key")]
-    InvalidPassword,
 
     #[error("encryption error: {0}")]
     EncryptionError(#[from] EncryptionError),
-
-    #[error("deserialisation failed: {0}")]
-    DeserialisationFailed(String),
 }

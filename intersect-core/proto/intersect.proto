@@ -1,53 +1,34 @@
 syntax = "proto3";
 
-package intersect.v1;
+package v1.intersect;
 
 import "veilid.proto";
 
+// ==== encrypted payloads ====
+
 message Encrypted {
   veilid.Nonce nonce = 1;
-  optional bytes ciphertext = 2;
+  bytes ciphertext = 2;
 }
 
-message Fragment { optional bytes data = 1; }
-
-message IndexMetadata {
-  optional string name = 1;
-  veilid.CryptoKey shard = 2;
-  Trace fragment = 3;
-  Trace links = 4;
-  // timestamps
-  // #[bw(map = |t| Timestamp::as_u64(t.clone()))]
-  // #[br(map = Timestamp::new)]
-  // created_at: Timestamp,
-  // #[bw(map = |t| Timestamp::as_u64(t.clone()))]
-  // #[br(map = Timestamp::new)]
-  // last_updated: Timestamp,
-}
-
-message LinkEntry {
-  optional string name = 1;
-  Trace trace = 2;
-  // // metadata
-  // #[bw(map = |t| Timestamp::as_u64(t.clone()))]
-  // #[br(map = Timestamp::new)]
-  // created_at: Timestamp,
-  // #[bw(map = |t| Timestamp::as_u64(t.clone()))]
-  // #[br(map = Timestamp::new)]
-  // last_updated: Timestamp,
-}
+// ==== traces ====
+// traces are access-controlled references to a record of a given type
 
 enum RecordType {
   UNKNOWN = 0;
-  FRAGMENT = 1;
-  INDEX = 2;
-  LINKS = 3;
+  ACCOUNT = 1;
+  FRAGMENT = 2;
+  INDEX = 3;
+  LINKS = 4;
 }
 
 message Access {
   message Locked {}
-  message Unlocked { veilid.CryptoKey secret = 1; }
-  message Protected { Encrypted encrypted_secret = 1; }
+  message Unlocked { veilid.SharedSecret secret = 1; }
+  message Protected {
+    veilid.Nonce salt = 1;          // salt for the password hash
+    Encrypted encrypted_secret = 2; // Encrypted veilid.SharedSecret
+  }
 
   oneof access_level {
     Locked locked = 1;
@@ -57,7 +38,82 @@ message Access {
 }
 
 message Trace {
-  RecordType domain = 1;
-  veilid.CryptoKey key = 2;
+  RecordType type = 1;
+  // record key including default-encryption key (ensures that caching nodes never see plaintext)
+  veilid.RecordKey record = 2;
+  // intersect uses its own encryption on top of the default-encryption
+  // so that indexes can be referenced without neccessarily including their encryption key
   Access access = 3;
+}
+
+// ==== fragment record ====
+// 0: FragmentHeader
+// 1..?: FragmentChunk
+// the reassembled fragment data will be an Encrypted message containing data of the given mime type
+
+// inspired by https://gitlab.com/veilid/veilidchat/-/blob/main/packages/veilid_support/lib/dht_support/proto/dht.proto
+message FragmentHeader {
+  // hash of reassembled data to verify contents (of the *encrypted* data!)
+  veilid.HashDigest hash = 1;
+  // chunk size per subkey (in bytes)
+  uint32 chunk = 2;
+  // total data size (in bytes)
+  uint32 size = 3;
+  // content type will be 'text/markdown;charset=UTF-8' for most intersect fragments
+  string mime = 4;
+  // other keys to concatenate (same writer key)
+  // (not enforced in the protobuf model, but these should always be Unlocked Traces with the same writer key)
+  repeated Trace keys = 5;
+}
+
+// contents of a single Fragment subkey
+message FragmentChunk { bytes data = 1; }
+
+// ==== index record ====
+// indexes act as a sort of header for a "file" and also contain arbitrary links to other "files"
+// 0: IndexHeader
+
+message IndexHeader {
+  // reference to the writer account
+  Trace account = 1;
+  // name for this "file"
+  optional string name = 2;
+  // content for this "file"
+  optional Trace fragment = 3;
+  // links to other indexes
+  optional Trace links = 4;
+}
+
+// ==== links record ====
+// 0: LinksHeader
+// 1..?: Link
+
+message LinksHeader {
+  // TODO: build this out in a similar way to DHTShortArray
+}
+
+// links are essentially just named traces stored in a subkey
+message Link {
+  Trace trace = 1;
+  optional string name = 2;
+}
+
+// ==== account record ====
+// 0: AccountPublic, encrypted key given in trace, as usual
+// 1: AccountPrivate, encrypted with secret derived from the private key and record key
+
+message AccountPublic {
+  // full public key because it can't be derived from the memberid in the schema
+  veilid.PublicKey public_key = 1;
+  optional string name = 2; // max 64 bytes
+  optional string bio = 3;  // max 8 KiB
+  // homepage for this account, if any
+  optional Trace home = 4;
+}
+
+message AccountPrivate {
+  // contains the private key so we can grab the private key after logging in with the derived secret
+  veilid.SecretKey private_key = 1;
+  // Links record of bookmarked traces
+  optional Trace bookmarks = 2;
 }

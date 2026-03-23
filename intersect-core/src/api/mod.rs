@@ -1,10 +1,6 @@
-mod domains;
-mod fragment_record;
-mod index_record;
+mod document;
+pub use document::*;
 mod intersect;
-mod links_record;
-pub use domains::*;
-pub use fragment_record::*;
-pub use index_record::*;
 pub use intersect::*;
-pub use links_record::*;
+mod reference;
+pub use reference::*;

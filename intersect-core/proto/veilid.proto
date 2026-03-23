@@ -1,28 +1,53 @@
 syntax = "proto3";
 
-package veilid;
+package v1.veilid;
 
 // base types from
 // https://gitlab.com/veilid/veilidchat/-/blob/main/packages/veilid_support/lib/proto/veilid.proto
+// ("Bare" types not included)
 
-// 32-byte value in bigendian format
-message CryptoKey {
-  fixed32 u0 = 1;
-  fixed32 u1 = 2;
-  fixed32 u2 = 3;
-  fixed32 u3 = 4;
-  fixed32 u4 = 5;
-  fixed32 u5 = 6;
-  fixed32 u6 = 7;
-  fixed32 u7 = 8;
+// Byte Array Types
+message Nonce { bytes data = 1; }
+
+// Type-prefixed Types
+message PublicKey {
+  fixed32 kind = 1;
+  bytes data = 2;
+}
+// message Signature {
+//   fixed32 kind = 1;
+//   bytes data = 2;
+// }
+message SecretKey {
+  fixed32 kind = 1;
+  bytes data = 2;
+}
+message HashDigest {
+  fixed32 kind = 1;
+  bytes data = 2;
+}
+message SharedSecret {
+  fixed32 kind = 1;
+  bytes data = 2;
+}
+message MemberId {
+  fixed32 kind = 1;
+  bytes data = 2;
 }
 
-// 24-byte value in bigendian format
-message Nonce {
-  fixed32 u0 = 1;
-  fixed32 u1 = 2;
-  fixed32 u2 = 3;
-  fixed32 u3 = 4;
-  fixed32 u4 = 5;
-  fixed32 u5 = 6;
+// Key pair
+
+message KeyPair {
+  fixed32 kind = 1;
+  bytes key = 2;
+  bytes secret = 3;
+}
+
+// Record Key
+
+message RecordKey {
+  fixed32 kind = 1;
+  bytes key = 2;
+  // veilid doesn't enforce this, but intersect assumes that the default-encryption key is always included
+  bytes default_encryption = 3;
 }
