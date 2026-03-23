@@ -27,7 +27,7 @@ impl Reference {
     }
 }
 
-// typed handle for a document — wraps a Reference with the document type baked in.
+// typed handle for a document. wraps a Reference with the document type baked in.
 // eliminates the need for explicit type annotations when calling open/write/update.
 // convert to/from Trace for serialising and sharing.
 pub struct TypedReference<D: Document> {

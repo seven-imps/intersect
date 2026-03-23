@@ -75,7 +75,7 @@ impl Intersect {
         let reference = &typed_ref.reference;
         let identity = self.identity();
 
-        // immutable — single read, tx dropped immediately so changed() returns Err right away.
+        // immutable. single read, tx dropped immediately so changed() returns Err right away.
         // caller reads the value via borrow().
         if !D::MUTABLE {
             let view = D::read(reference, identity.as_ref(), &self.pool).await?;
@@ -84,13 +84,13 @@ impl Intersect {
             return Ok((TypedReference::new(reference.clone()), rx));
         }
 
-        // if a coordinator is already running for this record, subscribe for free —
+        // if a coordinator is already running for this record, subscribe for free
         // the receiver starts with the latest cached view, no read needed
         if let Some(rx) = self.coordinators.try_subscribe::<D>(reference.record()) {
             return Ok((TypedReference::new(reference.clone()), rx));
         }
 
-        // first open for this record — do the initial read, then create the coordinator
+        // first open for this record. do the initial read, then create the coordinator
         let initial = D::read(reference, identity.as_ref(), &self.pool).await?;
         self.pool.watch(reference).await?;
         let notify_rx = self.watch_router.subscribe(reference.record().clone());

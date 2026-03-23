@@ -11,7 +11,6 @@ use crate::{
     veilid::RecordPool,
 };
 
-#[allow(async_fn_in_trait)]
 pub trait Document: Sized {
     // if false, open() does a single read and closes the channel.
     // immutable document types (e.g. fragments) should set this to false.
@@ -28,11 +27,12 @@ pub trait Document: Sized {
     // partial write intent. expresses what to update, not how.
     type Update;
 
-    async fn read(
-        reference: &Reference,
-        identity: Option<&KeyPair>,
-        pool: &RecordPool,
-    ) -> Result<Self::View, DocumentError>;
+    // gotta be Send so it can be called from the WatchCoordinator task
+    fn read<'a>(
+        reference: &'a Reference,
+        identity: Option<&'a KeyPair>,
+        pool: &'a RecordPool,
+    ) -> impl std::future::Future<Output = Result<Self::View, DocumentError>> + Send + 'a;
 
     async fn create(
         view: &Self::View,

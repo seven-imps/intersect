@@ -1,57 +1,163 @@
-use std::io::Write;
+use std::sync::{
+    mpsc::{self, Receiver},
+    Arc,
+};
 
-use cli::{run_command, Cli};
-use clap::Parser;
+use anyhow::Result;
+use intersect_core::{
+    api::{Intersect, IntersectError},
+    veilid::ConnectionParams,
+};
+use ratatui::crossterm::{
+    event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyModifiers},
+    execute,
+};
+use tokio::sync::oneshot;
 
-use clap_repl::ClapEditor;
-use intersect_core::get_routing_context;
-use reedline::{DefaultPrompt, DefaultPromptSegment};
-
+mod app;
 mod cli;
+mod commands;
+mod stderr;
+mod ui;
 
 #[tokio::main]
-async fn main() {
-    // make sure intersect is running so we can use all the functionality
-    intersect_core::init().await;
-    // and wait for a network connection
-    get_routing_context().await;
+async fn main() -> Result<()> {
+    let stderr_rx = stderr::capture();
 
-    // try to run a command if there is one
-    // else start a repl
-    let args = Cli::try_parse();
-    match args {
-        Ok(command) => run(command).await,
-        Err(_) => repl().await,
-    }
-
-    // shut down intersect
-    intersect_core::shutdown().await;
-}
-
-async fn repl() {
-    // set up repl
-    let mut prompt = DefaultPrompt::default();
-    prompt.left_prompt = DefaultPromptSegment::Basic("".to_owned());
-    prompt.right_prompt = DefaultPromptSegment::Empty;
-    let mut rl = ClapEditor::<Cli>::new_with_prompt(Box::new(prompt), |reed| {
-        reed.with_ansi_colors(false)
+    let (tx, init_rx) = oneshot::channel::<Result<Intersect, IntersectError>>();
+    tokio::spawn(async move {
+        let _ = tx.send(Intersect::init(ConnectionParams { ephemeral: false }).await);
     });
 
+    let (cmd_tx, cmd_rx) = mpsc::sync_channel(64);
+    let mut app = app::App::new(cmd_tx);
+    ratatui::run(|terminal| run(terminal, &mut app, init_rx, stderr_rx, cmd_rx))
+}
+
+fn run(
+    terminal: &mut ratatui::DefaultTerminal,
+    app: &mut app::App,
+    init_rx: oneshot::Receiver<Result<Intersect, IntersectError>>,
+    stderr_rx: Receiver<String>,
+    cmd_rx: Receiver<String>,
+) -> Result<()> {
+    // replace default paste handler so we can handle pastes as a single event rather than a stream of key events
+    execute!(std::io::stdout(), EnableBracketedPaste)?;
+
+    // override ratatui's panic hook
+    // worker-thread panics (e.g. from spawned commands) should show in the log, not close the ui
+    let panic_tx = app.cmd_tx.clone();
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if std::thread::current().name().is_some_and(|n| n == "main") {
+            prev_hook(info); // restores terminal and exits
+        }
+        let _ = panic_tx.try_send(format!("panic: {info}"));
+    }));
+
+    let result = event_loop(terminal, app, init_rx, stderr_rx, cmd_rx);
+
+    let _ = std::panic::take_hook(); // restore the original panic handler
+    execute!(std::io::stdout(), DisableBracketedPaste)?; // restore default paste handling
+    result
+}
+
+fn event_loop(
+    terminal: &mut ratatui::DefaultTerminal,
+    app: &mut app::App,
+    mut init_rx: oneshot::Receiver<Result<Intersect, IntersectError>>,
+    stderr_rx: Receiver<String>,
+    cmd_rx: Receiver<String>,
+) -> Result<()> {
+    let mut close_rx: Option<oneshot::Receiver<()>> = None;
+
     loop {
-        // Use `read_command` instead of `readline`.
-        let Some(command) = rl.read_command() else {
-            continue;
-        };
-        run(command).await;
+        while let Ok(line) = stderr_rx.try_recv() {
+            app.log.push(line);
+        }
+        while let Ok(line) = cmd_rx.try_recv() {
+            app.log.push(line);
+        }
+
+        match init_rx.try_recv() {
+            Ok(Ok(intersect)) if app.is_closing() => {
+                // init finished while we were already closing: close it right away
+                close_rx = Some(spawn_close(Arc::new(intersect)));
+            }
+            Ok(Ok(intersect)) => {
+                app.intersect = Some(Arc::new(intersect));
+                app.status = app::Status::Ready;
+            }
+            Ok(Err(_)) if app.is_closing() => return Ok(()),
+            Ok(Err(e)) => app.status = app::Status::Failed(e.to_string()),
+            Err(_) => {}
+        }
+
+        if close_rx.as_mut().is_some_and(|rx| rx.try_recv().is_ok()) {
+            return Ok(());
+        }
+
+        terminal.draw(|f| ui::render(f, app))?;
+
+        if event::poll(std::time::Duration::from_millis(50))? {
+            match event::read()? {
+                Event::Paste(text) if !app.is_closing() => {
+                    app.input.push_str(&text.replace(['\n', '\r'], ""));
+                }
+                Event::Key(key) => match key.code {
+                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        if app.is_closing() {
+                            return Ok(()); // second ctrl+c: skip waiting, ratatui cleans up
+                        }
+                        app.status = app::Status::Closing;
+                        app.input.clear();
+                        if let Some(intersect) = app.intersect.take() {
+                            close_rx = Some(spawn_close(intersect));
+                        }
+                        // if still connecting, stay in the loop, init completion handled above
+                    }
+                    _ if !app.is_closing() => match key.code {
+                        KeyCode::Char(c) => app.input.push(c),
+                        KeyCode::Backspace => {
+                            app.input.pop();
+                        }
+                        KeyCode::Enter => {
+                            let input: String = app.input.drain(..).collect();
+                            if !input.is_empty() {
+                                app.log.push(format!("> {input}"));
+                                commands::dispatch(&input, &app.intersect, app.cmd_tx.clone());
+                            }
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
     }
 }
 
-async fn run(command: Cli) {
-    match run_command(command).await {
-        Ok(()) => {},
-        Err(err) => {
-            write!(std::io::stdout(), "{err}").map_err(|e| e.to_string()).unwrap();
-            std::io::stdout().flush().map_err(|e| e.to_string()).unwrap();
+fn spawn_close(intersect: Arc<Intersect>) -> oneshot::Receiver<()> {
+    let (tx, rx) = oneshot::channel();
+    tokio::spawn(async move {
+        // command tasks may briefly hold arc refs. retry until we can unwrap or timeout
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+        let mut arc = intersect;
+        loop {
+            match Arc::try_unwrap(arc) {
+                Ok(i) => {
+                    i.close().await;
+                    break;
+                }
+                Err(a) if std::time::Instant::now() < deadline => {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    arc = a;
+                }
+                Err(_) => break,
+            }
         }
-    }
+        let _ = tx.send(());
+    });
+    rx
 }

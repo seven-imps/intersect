@@ -6,7 +6,7 @@ use std::{
 
 use tokio::sync::watch;
 use veilid_core::{KeyPair, RecordKey, VeilidValueChange};
-use veilid_tools::spawn_detached_local;
+use veilid_tools::spawn_detached;
 
 use crate::{
     api::{Document, DocumentError, Reference},
@@ -147,7 +147,7 @@ impl WatchCoordinators {
         drop(map); // drop the lock
 
         let inner = Arc::clone(&self.inner);
-        spawn_detached_local("intersect-coordinator", async move {
+        spawn_detached("intersect-coordinator", async move {
             coordinator_task::<D>(reference, pool, identity, notify_rx, sender, router, inner)
                 .await;
         });
@@ -184,8 +184,8 @@ async fn coordinator_task<D: Document>(
                 }
             }
             Err(e) => {
-                // send the error but don't update last_view — next successful read
-                // will still be compared against the last good view
+                // send the error but don't update last_view
+                // next successful read will still be compared against the last good view
                 if sender.send(Err(e)).is_err() {
                     break;
                 }

@@ -46,7 +46,7 @@ pub enum AccountUpdate {
     Name(Option<String>),
     Bio(Option<String>),
     Home(Option<Trace>),
-    // TODO: private account updates (bookmarks, etc.) — needs identity secret key
+    // TODO: private account updates (bookmarks, etc.)
 }
 
 impl Document for AccountDocument {
