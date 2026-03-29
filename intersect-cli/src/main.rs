@@ -9,7 +9,11 @@ use intersect_core::{
     veilid::ConnectionParams,
 };
 use ratatui::crossterm::{
-    event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyModifiers},
+    event::{
+        self, DisableBracketedPaste, DisableMouseCapture,
+        EnableBracketedPaste, EnableMouseCapture,
+        Event, KeyCode, KeyModifiers, MouseEventKind,
+    },
     execute,
 };
 use tokio::sync::oneshot;
@@ -30,8 +34,9 @@ async fn main() -> Result<()> {
     });
 
     let (cmd_tx, cmd_rx) = mpsc::sync_channel(64);
+    let (panic_tx, panic_rx) = mpsc::sync_channel(64);
     let mut app = app::App::new(cmd_tx);
-    ratatui::run(|terminal| run(terminal, &mut app, init_rx, stderr_rx, cmd_rx))
+    ratatui::run(|terminal| run(terminal, &mut app, init_rx, stderr_rx, cmd_rx, panic_tx, panic_rx))
 }
 
 fn run(
@@ -40,13 +45,15 @@ fn run(
     init_rx: oneshot::Receiver<Result<Intersect, IntersectError>>,
     stderr_rx: Receiver<String>,
     cmd_rx: Receiver<String>,
+    panic_tx: mpsc::SyncSender<String>,
+    panic_rx: Receiver<String>,
 ) -> Result<()> {
     // replace default paste handler so we can handle pastes as a single event rather than a stream of key events
     execute!(std::io::stdout(), EnableBracketedPaste)?;
 
     // override ratatui's panic hook
     // worker-thread panics (e.g. from spawned commands) should show in the log, not close the ui
-    let panic_tx = app.cmd_tx.clone();
+    // TODO: show panics in a modal (they "should never happen" but are useful to surface clearly)
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         if std::thread::current().name().is_some_and(|n| n == "main") {
@@ -55,7 +62,7 @@ fn run(
         let _ = panic_tx.try_send(format!("panic: {info}"));
     }));
 
-    let result = event_loop(terminal, app, init_rx, stderr_rx, cmd_rx);
+    let result = event_loop(terminal, app, init_rx, stderr_rx, cmd_rx, panic_rx);
 
     let _ = std::panic::take_hook(); // restore the original panic handler
     execute!(std::io::stdout(), DisableBracketedPaste)?; // restore default paste handling
@@ -68,6 +75,7 @@ fn event_loop(
     mut init_rx: oneshot::Receiver<Result<Intersect, IntersectError>>,
     stderr_rx: Receiver<String>,
     cmd_rx: Receiver<String>,
+    panic_rx: Receiver<String>,
 ) -> Result<()> {
     let mut close_rx: Option<oneshot::Receiver<()>> = None;
 
@@ -75,8 +83,11 @@ fn event_loop(
         while let Ok(line) = stderr_rx.try_recv() {
             app.log.push(line);
         }
-        while let Ok(line) = cmd_rx.try_recv() {
+        while let Ok(line) = panic_rx.try_recv() {
             app.log.push(line);
+        }
+        while let Ok(line) = cmd_rx.try_recv() {
+            app.output.push(line);
         }
 
         match init_rx.try_recv() {
@@ -117,6 +128,9 @@ fn event_loop(
                         // if still connecting, stay in the loop, init completion handled above
                     }
                     _ if !app.is_closing() => match key.code {
+                        KeyCode::Char('`') | KeyCode::Char('~') => {
+                            app.log_expanded = !app.log_expanded;
+                        }
                         KeyCode::Char(c) => app.input.push(c),
                         KeyCode::Backspace => {
                             app.input.pop();
@@ -124,7 +138,8 @@ fn event_loop(
                         KeyCode::Enter => {
                             let input: String = app.input.drain(..).collect();
                             if !input.is_empty() {
-                                app.log.push(format!("> {input}"));
+                                app.output.clear();
+                                app.output.push(format!("> {input}"));
                                 commands::dispatch(&input, &app.intersect, app.cmd_tx.clone());
                             }
                         }
