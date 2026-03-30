@@ -8,40 +8,11 @@ use intersect_core::{
     veilid::with_crypto,
 };
 
-use clap::Parser;
-
 use crate::cli::{Cli, Commands, CreateCommands};
 
 pub enum Output {
     Line(String),
     Error(String),
-}
-
-pub fn dispatch(input: &str, intersect: &Option<Arc<Intersect>>, tx: SyncSender<Output>) {
-    let args = match shlex::split(input) {
-        Some(a) => a,
-        None => {
-            let _ = tx.send(Output::Error("invalid quoting".to_string()));
-            return;
-        }
-    };
-
-    let cli = match Cli::try_parse_from(&args) {
-        Ok(c) => c,
-        Err(e) => {
-            let _ = tx.send(Output::Error(format!("{e}")));
-            return;
-        }
-    };
-
-    let Some(intersect) = intersect.clone() else {
-        let _ = tx.send(Output::Error("not connected yet".to_string()));
-        return;
-    };
-
-    tokio::spawn(async move {
-        execute(cli, intersect, tx).await;
-    });
 }
 
 pub async fn execute(cli: Cli, intersect: Arc<Intersect>, tx: SyncSender<Output>) {

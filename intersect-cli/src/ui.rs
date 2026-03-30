@@ -37,10 +37,13 @@ impl<V: cursive::View> ViewWrapper for AlwaysFocused<V> {
     }
 }
 
+use clap::Parser;
+
 use crate::{
     app::AppState,
     commands::{self, Output},
 };
+use crate::cli::Cli;
 
 type LogPanel = HideableView<Panel<NamedView<ScrollView<NamedView<TextView>>>>>;
 type LogPadding = HideableView<ResizedView<DummyView>>;
@@ -268,7 +271,30 @@ fn on_submit(s: &mut Cursive, text: &str) {
     let cmd_tx = state.cmd_tx.clone();
     drop(state);
 
-    commands::dispatch(&text, &intersect, cmd_tx);
+    let args = match shlex::split(&text) {
+        Some(a) => a,
+        None => {
+            let _ = cmd_tx.send(Output::Error("invalid quoting".to_string()));
+            return;
+        }
+    };
+
+    let cli = match Cli::try_parse_from(&args) {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = cmd_tx.send(Output::Error(format!("{e}")));
+            return;
+        }
+    };
+
+    let Some(intersect) = intersect else {
+        let _ = cmd_tx.send(Output::Error("not connected yet".to_string()));
+        return;
+    };
+
+    tokio::spawn(async move {
+        commands::execute(cli, intersect, cmd_tx).await;
+    });
 }
 
 fn on_ctrl_c(s: &mut Cursive) {
