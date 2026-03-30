@@ -1,7 +1,11 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use cursive::{Cursive, views::{Dialog, PaddedView, TextView}};
+use clap::Parser;
+use cursive::{
+    views::{Dialog, PaddedView, TextView},
+    Cursive,
+};
 use intersect_core::{api::Intersect, veilid::ConnectionParams};
 
 mod app;
@@ -10,9 +14,36 @@ mod commands;
 mod stderr;
 mod ui;
 
+const CMD_CHANNEL_CAP: usize = 64;
+
+#[derive(Debug, Parser)]
+#[command(name = "intersect")]
+struct Args {
+    /// run veilid node in a single-use namespace
+    #[arg(short = 'e', long)]
+    ephemeral: bool,
+
+    /// run a single command instead of launching the tui
+    #[arg(last = true)]
+    command: Vec<String>,
+}
+
 fn main() -> Result<()> {
+    let args = Args::parse();
+    let connection_params = ConnectionParams {
+        ephemeral: args.ephemeral,
+    };
+
+    if args.command.is_empty() {
+        run_tui(connection_params)
+    } else {
+        run_command(connection_params, args.command)
+    }
+}
+
+fn run_tui(connection_params: ConnectionParams) -> Result<()> {
     let stderr_rx = stderr::capture();
-    let (cmd_tx, cmd_rx) = std::sync::mpsc::sync_channel(64);
+    let (cmd_tx, cmd_rx) = std::sync::mpsc::sync_channel::<commands::Output>(CMD_CHANNEL_CAP);
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -32,7 +63,7 @@ fn main() -> Result<()> {
 
     let (cb, st) = (cb_sink.clone(), state.clone());
     rt.spawn(async move {
-        match Intersect::init(ConnectionParams { ephemeral: false }).await {
+        match Intersect::init(connection_params).await {
             Ok(i) => {
                 st.lock().unwrap().intersect = Some(Arc::new(i));
                 let _ = cb.send(Box::new(|s: &mut Cursive| {
@@ -58,6 +89,51 @@ fn main() -> Result<()> {
     let _guard = rt.enter();
     siv.run();
     drop(_guard);
+
+    Ok(())
+}
+
+fn run_command(connection_params: ConnectionParams, command: Vec<String>) -> Result<()> {
+    let cli = match cli::Cli::try_parse_from(&command) {
+        Ok(c) => c,
+        Err(e) => {
+            eprint!("{e}");
+            std::process::exit(2);
+        }
+    };
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    rt.block_on(async {
+        let intersect = match Intersect::init(connection_params).await {
+            Ok(i) => Arc::new(i),
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        };
+
+        let (cmd_tx, cmd_rx) = std::sync::mpsc::sync_channel(CMD_CHANNEL_CAP);
+        commands::execute(cli, intersect.clone(), cmd_tx).await;
+
+        let mut errored = false;
+        for msg in std::iter::from_fn(|| cmd_rx.try_recv().ok()) {
+            match msg {
+                commands::Output::Line(s) => println!("{s}"),
+                commands::Output::Error(s) => {
+                    eprintln!("{s}");
+                    errored = true;
+                }
+            }
+        }
+
+        close(intersect).await;
+        if errored {
+            std::process::exit(1);
+        }
+    });
 
     Ok(())
 }

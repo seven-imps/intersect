@@ -37,7 +37,10 @@ impl<V: cursive::View> ViewWrapper for AlwaysFocused<V> {
     }
 }
 
-use crate::{app::AppState, commands};
+use crate::{
+    app::AppState,
+    commands::{self, Output},
+};
 
 type LogPanel = HideableView<Panel<NamedView<ScrollView<NamedView<TextView>>>>>;
 type LogPadding = HideableView<ResizedView<DummyView>>;
@@ -209,15 +212,24 @@ fn on_refresh(s: &mut Cursive) {
 
     if !cmd_lines.is_empty() {
         s.call_on_name("output", |v: &mut TextView| {
-            for line in cmd_lines {
-                v.append(format!("{line}\n"));
+            for msg in cmd_lines {
+                match msg {
+                    Output::Line(s) => v.append(format!("{s}\n")),
+                    Output::Error(s) => v.append(cursive::utils::markup::StyledString::styled(
+                        format!("{s}\n"),
+                        ColorStyle::front(Color::Light(BaseColor::Red)),
+                    )),
+                }
             }
         });
-        s.call_on_name("output-scroll", |v: &mut ScrollView<NamedView<TextView>>| {
-            if v.is_at_bottom() {
-                let _ = v.set_scroll_strategy(ScrollStrategy::StickToBottom);
-            }
-        });
+        s.call_on_name(
+            "output-scroll",
+            |v: &mut ScrollView<NamedView<TextView>>| {
+                if v.is_at_bottom() {
+                    let _ = v.set_scroll_strategy(ScrollStrategy::StickToBottom);
+                }
+            },
+        );
     }
     if !log_lines.is_empty() {
         s.call_on_name("log", |v: &mut TextView| {

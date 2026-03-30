@@ -3,8 +3,8 @@ use std::io::{BufRead, BufReader};
 use std::os::unix::io::FromRawFd;
 use std::sync::mpsc::{self, Receiver};
 
-/// Redirects stderr to a pipe and returns a channel that receives lines from it.
-/// Must be called before anything writes to stderr.
+// redirects stderr to a pipe and returns a channel that receives lines from it.
+// must be called before anything writes to stderr.
 pub fn capture() -> Receiver<String> {
     let (tx, rx) = mpsc::channel();
 

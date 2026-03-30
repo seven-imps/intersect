@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
+// disable_help_flag: clap's default --help calls process::exit, which would kill the tui
 #[command(name = "intersect", no_binary_name = true, disable_help_flag = true)]
 pub struct Cli {
     #[command(subcommand)]
