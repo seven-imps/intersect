@@ -18,55 +18,83 @@ use crate::{
     },
 };
 
+/// account display name, max 64 bytes
+/// (note: distinct from 64 characters due to multi-byte unicode)
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct AccountName(String);
+
+impl AccountName {
+    pub fn new(name: String) -> Result<Self, ValidationError> {
+        guard!(
+            name.len() <= 64,
+            Err(ValidationError::TooLong(
+                "name can be at most 64 bytes".to_string()
+            ))
+        );
+        Ok(Self(name))
+    }
+}
+
+impl AsRef<str> for AccountName {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+/// account bio, max 8KiB
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct AccountBio(String);
+
+impl AccountBio {
+    pub fn new(bio: String) -> Result<Self, ValidationError> {
+        guard!(
+            bio.len() <= 8 * 1024,
+            Err(ValidationError::TooLong(
+                "bio can be at most 8 kilobytes".to_string()
+            ))
+        );
+        Ok(Self(bio))
+    }
+}
+
+impl AsRef<str> for AccountBio {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct AccountPublic {
-    public_key: PublicKey,
-    name: Option<String>,
-    bio: Option<String>,
-    home: Option<Trace>,
+    pub public_key: PublicKey,
+    pub name: Option<AccountName>,
+    pub bio: Option<AccountBio>,
+    pub home: Option<Trace>,
 }
 
 impl AccountPublic {
     pub fn new(
         public_key: PublicKey,
-        name: Option<String>,
-        bio: Option<String>,
+        name: Option<AccountName>,
+        bio: Option<AccountBio>,
         home: Option<Trace>,
-    ) -> Result<Self, ValidationError> {
-        // max 64 bytes for name
-        // (note: this is distinct from 64 characters because of multi-byte characters!)
-        guard!(
-            name.as_ref().is_none_or(|n| n.len() <= 64),
-            Err(ValidationError::TooLong(
-                "name can be at most 64 bytes".to_string()
-            ))
-        );
-
-        // max 8KiB for bio
-        guard!(
-            bio.as_ref().is_none_or(|n| n.len() <= 8 * 1024),
-            Err(ValidationError::TooLong(
-                "bio can be at most 8 kilobytes".to_string()
-            ))
-        );
-
-        Ok(Self {
+    ) -> Self {
+        Self {
             public_key,
             name,
             bio,
             home,
-        })
+        }
     }
 
     pub fn public_key(&self) -> &PublicKey {
         &self.public_key
     }
 
-    pub fn name(&self) -> Option<&String> {
+    pub fn name(&self) -> Option<&AccountName> {
         self.name.as_ref()
     }
 
-    pub fn bio(&self) -> Option<&String> {
+    pub fn bio(&self) -> Option<&AccountBio> {
         self.bio.as_ref()
     }
 
@@ -81,8 +109,8 @@ impl SerialisableV1 for AccountPublic {
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         Ok(Self::Proto {
             public_key: Some(proto::v1::veilid::PublicKey::from(self.public_key())),
-            name: self.name().cloned(),
-            bio: self.bio().cloned(),
+            name: self.name().map(|n| n.as_ref().to_owned()),
+            bio: self.bio().map(|b| b.as_ref().to_owned()),
             home: None, // TODO: implement home and add it here
         })
     }
@@ -92,8 +120,10 @@ impl SerialisableV1 for AccountPublic {
             .public_key
             .ok_or(DeserialisationError::MissingField("public_key".to_owned()))?
             .into();
+        let name = proto.name.map(AccountName::new).transpose()?;
+        let bio = proto.bio.map(AccountBio::new).transpose()?;
         let home: Option<Trace> = proto.home.map(TryInto::try_into).transpose()?;
-        Ok(Self::new(public_key, proto.name, proto.bio, home)?)
+        Ok(Self::new(public_key, name, bio, home))
     }
 }
 

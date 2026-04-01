@@ -174,7 +174,7 @@ async fn coordinator_task<D: Document>(
         }
 
         // notification triggers re-read of the document
-        match D::read(&reference, identity.as_ref(), &pool).await {
+        match D::read(&reference, identity.as_ref(), false, &pool).await {
             Ok(new_view) => {
                 if Some(&new_view) != last_view.as_ref() {
                     last_view = Some(new_view.clone());

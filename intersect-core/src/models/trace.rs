@@ -26,7 +26,7 @@ use crate::{
     },
 };
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum RecordType {
     Account,
     Fragment,

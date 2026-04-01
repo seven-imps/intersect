@@ -3,6 +3,7 @@ pub const LARGE_SUBKEYS: u16 = 32;
 // more subkeys = smaller max size per subkey (4kb each)
 pub const MANY_SUBKEYS: u16 = 256;
 
+use tokio::sync::watch;
 use veilid_core::KeyPair;
 
 use crate::{
@@ -12,45 +13,53 @@ use crate::{
 };
 
 pub trait Document: Sized {
-    // if false, open() does a single read and closes the channel.
-    // immutable document types (e.g. fragments) should set this to false.
-    const MUTABLE: bool;
-
-    // number of subkeys on the root record. affects max subkey size.
+    /// number of subkeys on the root record. affects max subkey size.
     const MAX_SUBKEYS: u16;
 
-    // the record type used when serialising a TypedReference to a Trace.
+    /// the record type used when serialising a TypedReference to a Trace.
     const RECORD_TYPE: RecordType;
 
     type View: PartialEq + Clone + Send + Sync + 'static;
 
-    // partial write intent. expresses what to update, not how.
-    type Update;
-
-    // gotta be Send so it can be called from the WatchCoordinator task
+    /// read the entire document and assemble it.
+    /// everything should be discoverable from the root reference, put could potentially read from more records
+    ///  if `force` is true, `read` should guarantee the most recent network version is returned
+    /// for mutable documents that means a force_refresh should be done when reading subkeys,
+    /// immutable records are always guaranteed to be fresh, so force can be ignored.
     fn read<'a>(
         reference: &'a Reference,
         identity: Option<&'a KeyPair>,
+        force: bool,
         pool: &'a RecordPool,
-    ) -> impl std::future::Future<Output = Result<Self::View, DocumentError>> + Send + 'a;
+        // (gotta be Send so it can be called from the WatchCoordinator task)
+    ) -> impl Future<Output = Result<Self::View, DocumentError>> + Send + 'a;
 
-    async fn create(
+    fn create(
         view: &Self::View,
         identity: &KeyPair,
         pool: &RecordPool,
-    ) -> Result<TypedReference<Self>, DocumentError>;
+    ) -> impl Future<Output = Result<TypedReference<Self>, DocumentError>> + Send;
+}
 
-    // immutable document types (MUTABLE = false) should return Err(DocumentError::NotMutable) here.
+pub trait MutableDocument: Document {
+    /// represents partial write intent. expresses what to update, not how.
+    type Update;
+
     // TODO: updates should use some kind of builder pattern and then apply
     // all changes inside of a veilid transaction instead.
     // that way we also avoid the potential issues of doing mutiple updates
     // in parallel and overwriting each other.
-    async fn update(
+    fn update(
         update: Self::Update,
-        reference: &Reference,
+        document: &OpenDocument<Self>,
         identity: &KeyPair,
         pool: &RecordPool,
-    ) -> Result<(), DocumentError>;
+    ) -> impl Future<Output = Result<(), DocumentError>> + Send;
+}
+
+pub struct OpenDocument<D: MutableDocument> {
+    pub reference: TypedReference<D>,
+    pub updates: watch::Receiver<Result<D::View, DocumentError>>,
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -73,7 +82,4 @@ pub enum DocumentError {
 
     #[error("not authorised")]
     NotAuthorised,
-
-    #[error("document is not mutable")]
-    NotMutable,
 }

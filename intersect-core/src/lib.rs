@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 // internal modules
 mod proto;
 

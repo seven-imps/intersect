@@ -1,12 +1,13 @@
-use std::str::FromStr;
+#![recursion_limit = "256"]
+// scratchpad for manual testing. superseded by intersect-cli.
 
 use intersect_core::{
     api::{Intersect, TypedReference},
-    documents::{AccountDocument, AccountUpdate},
-    log,
+    debug, log,
     models::Trace,
-    veilid::{ConnectionParams, with_crypto},
+    veilid::ConnectionParams,
 };
+use veilid_core::SecretKey;
 
 #[tokio::main]
 async fn main() {
@@ -21,71 +22,38 @@ async fn run() {
     log!("starting... (ephemeral: {})", ephemeral);
 
     let intersect = Intersect::init(connection_params).await.unwrap();
-    let keypair = with_crypto(|c| c.generate_keypair());
-    intersect.login(keypair.clone()).unwrap();
 
-    match args
-        .iter()
-        .find(|a| *a == "create" || *a == "watch")
-        .map(|s| s.as_str())
-    {
-        Some("create") => create(&intersect).await,
-        Some("watch") => {
-            let trace_str = args
-                .iter()
-                .skip_while(|a| *a != "watch")
-                .nth(1)
-                .expect("usage: watch <trace>");
-            watch(&intersect, trace_str).await;
-        }
-        _ => {
-            eprintln!("usage: intersect-core [--ephemeral] create|watch <trace>");
-        }
-    }
+    // let (account_ref, private_key) = intersect
+    //     .create_account(Some("evelyn".to_owned()), Some("test bio".to_owned()), None)
+    //     .await
+    //     .unwrap();
 
-    intersect.close().await;
-}
+    // debug!(
+    //     "account created with reference: {:?} and private key: {:?}",
+    //     account_ref, private_key
+    // );
+    // debug!(
+    //     "account: {}",
+    //     intersect.account().unwrap().to_unlocked_trace()
+    // );
 
-async fn create(intersect: &Intersect) {
-    let typed_ref = intersect
-        .create_account(Some("evelyn".to_string()), Some("hi! <3".to_string()), None)
+    let account_trace = "26XrzqicitrPi2vBcGbuXyU8FvpTGtexoUUhUZcEHepe8VuijGywRsRZKg7NXPa5oy95RkzMJGBcAzBPQ4JqinAcwFSRDxsYRxPd3B3mXNX1ahVfQmrwqZ2bGGWuL1E8d2K4NuWHMGxY9yXoHR1nz2jcAbhnY82NN3Kz1kWY4sPuj2".parse::<Trace>().unwrap();
+    let secret_key = "JHsaNuKGBJV_LpD_jAYUhmYFTQ_adhqZMLfERk9ARMc"
+        .parse::<SecretKey>()
+        .unwrap();
+
+    intersect
+        .login(
+            TypedReference::from_trace(account_trace).unwrap(),
+            secret_key,
+        )
         .await
         .unwrap();
-    log!("created account");
-    log!("trace: {}", typed_ref.to_unlocked_trace());
 
-    loop {
-        log!("enter new name (blank to quit):");
-        let mut new_name = String::new();
-        std::io::stdin().read_line(&mut new_name).unwrap();
-        let new_name = new_name.trim().to_string();
+    let account = intersect.open(&intersect.account().unwrap()).await.unwrap();
+    let account_view = account.updates.borrow().clone().unwrap();
 
-        if new_name.is_empty() {
-            break;
-        }
+    debug!("account view: {:?}", account_view);
 
-        intersect
-            .update(&typed_ref, AccountUpdate::Name(Some(new_name.clone())))
-            .await
-            .unwrap();
-        log!("updated name to '{}'", new_name);
-    }
-}
-
-async fn watch(intersect: &Intersect, trace_str: &str) {
-    let typed_ref = TypedReference::<AccountDocument>::try_from(
-        Trace::from_str(trace_str).expect("invalid trace"),
-    )
-    .expect("trace must be unlocked and of type Account");
-    log!("watching account...");
-    let (_, mut rx) = intersect.open(&typed_ref).await.unwrap();
-    loop {
-        match rx.borrow_and_update().as_ref() {
-            Ok(view) => log!("view: {:?}", view.public),
-            Err(e) => log!("error: {}", e),
-        }
-        if rx.changed().await.is_err() {
-            break;
-        }
-    }
+    intersect.close().await;
 }

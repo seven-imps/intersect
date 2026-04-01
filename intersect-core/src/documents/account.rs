@@ -1,8 +1,13 @@
 use veilid_core::{KeyPair, SharedSecret};
 
 use crate::{
-    api::{Document, DocumentError, LARGE_SUBKEYS, Reference, TypedReference},
-    models::{AccountPrivate, AccountPublic, Encrypted, RecordType, Trace},
+    api::{
+        Document, DocumentError, LARGE_SUBKEYS, MutableDocument, OpenDocument, Reference,
+        TypedReference,
+    },
+    models::{
+        AccountBio, AccountName, AccountPrivate, AccountPublic, Encrypted, RecordType, Trace,
+    },
     veilid::{RecordError, RecordPool, with_crypto},
 };
 
@@ -18,21 +23,7 @@ fn private_encryption_key(identity: &KeyPair, reference: &Reference) -> SharedSe
     .expect("derive_shared_secret failed")
 }
 
-async fn read_private(
-    identity: Option<&KeyPair>,
-    reference: &Reference,
-    pool: &RecordPool,
-) -> Result<Option<AccountPrivate>, DocumentError> {
-    let Some(id) = identity else { return Ok(None) };
-    match pool.read(reference, 1).await {
-        Ok(encrypted) => Ok(Some(
-            encrypted.decrypt(&private_encryption_key(id, reference))?,
-        )),
-        Err(RecordError::SubkeyEmpty(_)) => Ok(None),
-        Err(e) => Err(e.into()),
-    }
-}
-
+#[derive(PartialEq, Debug, Clone, Eq)]
 pub struct AccountDocument;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -43,28 +34,37 @@ pub struct AccountView {
 }
 
 pub enum AccountUpdate {
-    Name(Option<String>),
-    Bio(Option<String>),
+    Name(Option<AccountName>),
+    Bio(Option<AccountBio>),
     Home(Option<Trace>),
     // TODO: private account updates (bookmarks, etc.)
 }
 
 impl Document for AccountDocument {
-    const MUTABLE: bool = true;
     const MAX_SUBKEYS: u16 = LARGE_SUBKEYS;
     const RECORD_TYPE: RecordType = RecordType::Account;
 
     type View = AccountView;
-    type Update = AccountUpdate;
 
     async fn read(
         reference: &Reference,
         identity: Option<&KeyPair>,
+        force: bool,
         pool: &RecordPool,
     ) -> Result<AccountView, DocumentError> {
-        let public: AccountPublic = pool.read(reference, 0).await?.decrypt(reference.secret())?;
+        let public: AccountPublic = pool
+            .read(reference, 0, force)
+            .await?
+            .decrypt(reference.secret())?;
         let owner = identity.filter(|id| id.key() == *public.public_key());
-        let private = read_private(owner, reference, pool).await?;
+        let private = match owner {
+            None => None,
+            Some(id) => match pool.read(reference, 1, force).await {
+                Ok(encrypted) => Some(encrypted.decrypt(&private_encryption_key(id, reference))?),
+                Err(RecordError::SubkeyEmpty(_)) => None,
+                Err(e) => return Err(e.into()),
+            },
+        };
         Ok(AccountView { public, private })
     }
 
@@ -105,37 +105,28 @@ impl Document for AccountDocument {
 
         Ok(TypedReference::new(reference))
     }
+}
+
+impl MutableDocument for AccountDocument {
+    type Update = AccountUpdate;
 
     async fn update(
         update: AccountUpdate,
-        reference: &Reference,
+        doc: &OpenDocument<Self>,
         identity: &KeyPair,
         pool: &RecordPool,
     ) -> Result<(), DocumentError> {
-        // read current public, apply change, write back
-        let public: AccountPublic = pool.read(reference, 0).await?.decrypt(reference.secret())?;
+        // most recent view. guaranteed to be fresh (network delays aside) since an OpenDocument always has a watch on the record.
+        // clone so we don't hold the lock across a bunch of network operations.
+        let view = doc.updates.borrow().clone()?;
+        let public = view.public;
+        let reference = doc.reference.reference();
 
         let updated = match update {
-            AccountUpdate::Name(name) => AccountPublic::new(
-                public.public_key().clone(),
-                name,
-                public.bio().cloned(),
-                public.home().cloned(),
-            ),
-            AccountUpdate::Bio(bio) => AccountPublic::new(
-                public.public_key().clone(),
-                public.name().cloned(),
-                bio,
-                public.home().cloned(),
-            ),
-            AccountUpdate::Home(home) => AccountPublic::new(
-                public.public_key().clone(),
-                public.name().cloned(),
-                public.bio().cloned(),
-                home,
-            ),
-        }
-        .map_err(DocumentError::from)?;
+            AccountUpdate::Name(name) => AccountPublic { name, ..public },
+            AccountUpdate::Bio(bio) => AccountPublic { bio, ..public },
+            AccountUpdate::Home(home) => AccountPublic { home, ..public },
+        };
 
         let encrypted = Encrypted::encrypt(&updated, reference.secret())?;
         pool.write(reference, 0, &encrypted, identity).await?;

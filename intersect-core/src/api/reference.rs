@@ -30,9 +30,18 @@ impl Reference {
 // typed handle for a document. wraps a Reference with the document type baked in.
 // eliminates the need for explicit type annotations when calling open/write/update.
 // convert to/from Trace for serialising and sharing.
+#[derive(PartialEq, Debug, Eq)]
 pub struct TypedReference<D: Document> {
     pub(crate) reference: Reference,
     _phantom: PhantomData<D>,
+}
+
+// manual impl to avoid the `D: Clone` bound that #[derive(Clone)] would generate.
+// D is only used as a marker (PhantomData), so it doesn't need to be Clone itself.
+impl<D: Document> Clone for TypedReference<D> {
+    fn clone(&self) -> Self {
+        Self { reference: self.reference.clone(), _phantom: PhantomData }
+    }
 }
 
 impl<D: Document> TypedReference<D> {
@@ -49,23 +58,27 @@ impl<D: Document> TypedReference<D> {
 
     pub fn to_unlocked_trace(&self) -> Trace {
         Trace::unlocked(
-            D::RECORD_TYPE.clone(),
+            D::RECORD_TYPE,
             self.reference.record(),
             self.reference.secret(),
         )
     }
 
     pub fn to_locked_trace(&self) -> Trace {
-        Trace::locked(D::RECORD_TYPE.clone(), self.reference.record())
+        Trace::locked(D::RECORD_TYPE, self.reference.record())
     }
 
     pub fn to_protected_trace(&self, password: &str) -> Result<Trace, EncryptionError> {
         Trace::protected(
-            D::RECORD_TYPE.clone(),
+            D::RECORD_TYPE,
             self.reference.record(),
             self.reference.secret(),
             password,
         )
+    }
+
+    pub fn from_trace(trace: Trace) -> Result<Self, TraceConversionError> {
+        trace.try_into()
     }
 }
 

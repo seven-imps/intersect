@@ -1,13 +1,16 @@
 use std::sync::{Arc, Mutex};
 
+use guard_clause::guard;
 use thiserror::Error;
-use tokio::sync::watch;
-use veilid_core::KeyPair;
+use veilid_core::{KeyPair, SecretKey};
 
 use crate::{
-    api::{Document, DocumentError, TypedReference},
+    api::{Document, DocumentError, MutableDocument, OpenDocument, TypedReference},
     documents::{AccountDocument, AccountView},
-    models::{AccountPrivate, AccountPublic, EncryptionError, Trace, ValidationError},
+    models::{
+        AccountBio, AccountName, AccountPrivate, AccountPublic, EncryptionError, Trace,
+        ValidationError,
+    },
     serialisation::{DeserialisationError, SerialisationError},
     veilid::{
         Connection, ConnectionError, ConnectionParams, RecordError, RecordPool, WatchCoordinators,
@@ -15,10 +18,16 @@ use crate::{
     },
 };
 
+#[derive(Clone)]
+struct Identity {
+    keypair: KeyPair,
+    account: TypedReference<AccountDocument>,
+}
+
 pub struct Intersect {
     connection: Connection,
     pool: Arc<RecordPool>,
-    identity: Arc<Mutex<Option<KeyPair>>>,
+    identity: Arc<Mutex<Option<Identity>>>,
     watch_router: Arc<WatchRouter>,
     coordinators: WatchCoordinators,
 }
@@ -48,54 +57,100 @@ impl Intersect {
         self.connection.close().await;
     }
 
-    pub fn login(&self, identity: KeyPair) -> Result<(), IntersectError> {
-        let is_valid = with_crypto(|c| c.validate_keypair(&identity.key(), &identity.secret()))
+    /// two-pass login: reads public key from the account record, reconstructs the keypair,
+    /// then verifies the stored private key matches before setting identity.
+    pub async fn login(
+        &self,
+        account: TypedReference<AccountDocument>,
+        secret_key: SecretKey,
+    ) -> Result<(), IntersectError> {
+        let reference = &account.reference;
+
+        // public key can't be derived from the reference alone, so read it from the record first
+        let public_view = AccountDocument::read(reference, None, true, &self.pool).await?;
+        let public_key = public_view.public.public_key;
+
+        // reconstruct and validate the keypair
+        guard!(
+            secret_key.kind() == public_key.kind(),
+            Err(IntersectError::InvalidLogin)
+        );
+        let keypair = KeyPair::new_from_parts(public_key, secret_key.value());
+        let is_valid = with_crypto(|c| c.validate_keypair(&keypair.key(), &keypair.secret()))
             .map_err(|_| IntersectError::InvalidLogin)?;
         if !is_valid {
             return Err(IntersectError::InvalidLogin);
         }
-        *self.identity.lock().unwrap() = Some(identity);
+
+        // second pass: read with identity to verify stored private key matches
+        let full_view = AccountDocument::read(reference, Some(&keypair), false, &self.pool).await?;
+        let private = full_view.private.ok_or(IntersectError::InvalidLogin)?;
+        if private.private_key() != &keypair.secret() {
+            return Err(IntersectError::InvalidLogin);
+        }
+
+        *self.identity.lock().unwrap() = Some(Identity { keypair, account });
         Ok(())
     }
 
-    pub fn identity(&self) -> Option<KeyPair> {
-        self.identity.lock().unwrap().clone()
+    pub fn logout(&self) {
+        *self.identity.lock().unwrap() = None;
+        // TODO: cancel all active watch coordinators on logout
     }
 
-    pub async fn open<D: Document>(
+    fn identity(&self) -> Option<KeyPair> {
+        self.identity
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|i| i.keypair.clone())
+    }
+
+    pub fn account(&self) -> Option<TypedReference<AccountDocument>> {
+        self.identity
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|i| i.account.clone())
+    }
+
+    /// one-time document retrieval guaranteed to return the most recent version on the network
+    pub async fn fetch<D: Document>(
         &self,
         typed_ref: &TypedReference<D>,
-    ) -> Result<
-        (
-            TypedReference<D>,
-            watch::Receiver<Result<D::View, DocumentError>>,
-        ),
-        IntersectError,
-    > {
+    ) -> Result<D::View, IntersectError> {
+        let identity = self.identity();
+        // always force — immutable implementations ignore this and use cache internally anyway
+        D::read(&typed_ref.reference, identity.as_ref(), true, &self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// document retrieval with background watch
+    /// initial return may be stale local cache, but will continually return newer versions to the receiver
+    /// (usually faster than `fetch` if you don't need the most up-to-date version right away)
+    pub async fn open<D: MutableDocument>(
+        &self,
+        typed_ref: &TypedReference<D>,
+    ) -> Result<OpenDocument<D>, IntersectError> {
         let reference = &typed_ref.reference;
         let identity = self.identity();
 
-        // immutable. single read, tx dropped immediately so changed() returns Err right away.
-        // caller reads the value via borrow().
-        if !D::MUTABLE {
-            let view = D::read(reference, identity.as_ref(), &self.pool).await?;
-            let (tx, rx) = watch::channel(Ok(view));
-            drop(tx);
-            return Ok((TypedReference::new(reference.clone()), rx));
-        }
-
         // if a coordinator is already running for this record, subscribe for free
         // the receiver starts with the latest cached view, no read needed
-        if let Some(rx) = self.coordinators.try_subscribe::<D>(reference.record()) {
-            return Ok((TypedReference::new(reference.clone()), rx));
+        if let Some(updates) = self.coordinators.try_subscribe::<D>(reference.record()) {
+            return Ok(OpenDocument {
+                reference: typed_ref.clone(),
+                updates,
+            });
         }
 
         // first open for this record. do the initial read, then create the coordinator
-        let initial = D::read(reference, identity.as_ref(), &self.pool).await?;
+        let initial = D::read(reference, identity.as_ref(), false, &self.pool).await?;
         self.pool.watch(reference).await?;
         let notify_rx = self.watch_router.subscribe(reference.record().clone());
 
-        let rx = self.coordinators.create::<D>(
+        let updates = self.coordinators.create::<D>(
             reference.clone(),
             initial,
             Arc::clone(&self.pool),
@@ -104,39 +159,54 @@ impl Intersect {
             Arc::clone(&self.watch_router),
         );
 
-        Ok((TypedReference::new(reference.clone()), rx))
+        Ok(OpenDocument {
+            reference: typed_ref.clone(),
+            updates,
+        })
     }
 
-    pub async fn update<D: Document>(
+    pub async fn update<D: MutableDocument>(
         &self,
-        typed_ref: &TypedReference<D>,
+        doc: &OpenDocument<D>,
         update: D::Update,
     ) -> Result<(), IntersectError> {
-        if !D::MUTABLE {
-            return Err(DocumentError::NotMutable)?;
-        }
         let identity = self.identity().ok_or(IntersectError::InvalidLogin)?;
-        D::update(update, &typed_ref.reference, &identity, &self.pool)
+        D::update(update, doc, &identity, &self.pool)
             .await
             .map_err(Into::into)
     }
 
+    /// creates a new account, generating a keypair internally.
+    /// returns the account reference and the secret key (save it to log in later).
+    /// errors if already logged in.
     pub async fn create_account(
         &self,
         name: Option<String>,
         bio: Option<String>,
         home: Option<Trace>,
-    ) -> Result<TypedReference<AccountDocument>, IntersectError> {
-        let identity = self.identity().ok_or(IntersectError::InvalidLogin)?;
-        let public = AccountPublic::new(identity.key(), name, bio, home)?;
-        let private = AccountPrivate::new(identity.secret(), None).unwrap();
+    ) -> Result<(TypedReference<AccountDocument>, SecretKey), IntersectError> {
+        if self.identity().is_some() {
+            return Err(IntersectError::AlreadyLoggedIn);
+        }
+        let keypair = with_crypto(|c| c.generate_keypair());
+        let public = AccountPublic::new(
+            keypair.key(),
+            name.map(AccountName::new).transpose()?,
+            bio.map(AccountBio::new).transpose()?,
+            home,
+        );
+        let private = AccountPrivate::new(keypair.secret(), None).unwrap();
         let view = AccountView {
             public,
             private: Some(private),
         };
-        AccountDocument::create(&view, &identity, &self.pool)
-            .await
-            .map_err(Into::into)
+        let reference = AccountDocument::create(&view, &keypair, &self.pool).await?;
+        let secret = keypair.secret();
+        *self.identity.lock().unwrap() = Some(Identity {
+            keypair,
+            account: reference.clone(),
+        });
+        Ok((reference, secret))
     }
 }
 
@@ -166,4 +236,7 @@ pub enum IntersectError {
 
     #[error("invalid login")]
     InvalidLogin,
+
+    #[error("already logged in")]
+    AlreadyLoggedIn,
 }

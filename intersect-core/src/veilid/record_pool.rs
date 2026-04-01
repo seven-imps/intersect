@@ -106,12 +106,13 @@ impl RecordPool {
         &self,
         reference: &Reference,
         subkey: u32,
+        force: bool,
     ) -> Result<Vec<u8>, RecordError> {
         let record = self.get_or_open(reference).await?;
         let data = self
             .connection
             .routing_context()
-            .get_dht_value(record.descriptor.key(), subkey, true)
+            .get_dht_value(record.descriptor.key(), subkey, force)
             .await
             .map_err(|e| RecordError::ReadError(e.to_string()))?
             .ok_or(RecordError::SubkeyEmpty(subkey))?;
@@ -119,8 +120,15 @@ impl RecordPool {
         Ok(data.data().to_vec())
     }
 
-    pub async fn read(&self, reference: &Reference, subkey: u32) -> Result<Encrypted, RecordError> {
-        let data = self.read_raw(reference, subkey).await?;
+    /// read a subkey on a given record
+    /// if `force` is true, will force a network refresh, bypassing local cache
+    pub async fn read(
+        &self,
+        reference: &Reference,
+        subkey: u32,
+        force: bool,
+    ) -> Result<Encrypted, RecordError> {
+        let data = self.read_raw(reference, subkey, force).await?;
         let encrypted = Encrypted::deserialise(&data)?;
         Ok(encrypted)
     }
