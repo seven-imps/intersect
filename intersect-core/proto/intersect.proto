@@ -12,9 +12,9 @@ message Encrypted {
 }
 
 // ==== traces ====
-// traces are access-controlled references to a record of a given type
+// traces are access-controlled references to a document of a given type
 
-enum RecordType {
+enum DocumentType {
   UNKNOWN = 0;
   ACCOUNT = 1;
   FRAGMENT = 2;
@@ -38,7 +38,7 @@ message Access {
 }
 
 message Trace {
-  RecordType type = 1;
+  DocumentType document_type = 1;
   // record key including default-encryption key (ensures that caching nodes never see plaintext)
   veilid.RecordKey record = 2;
   // intersect uses its own encryption on top of the default-encryption
@@ -62,8 +62,10 @@ message FragmentHeader {
   // content type will be 'text/markdown;charset=UTF-8' for most intersect fragments
   string mime = 4;
   // other keys to concatenate (same writer key)
-  // (not enforced in the protobuf model, but these should always be Unlocked Traces with the same writer key)
-  repeated Trace keys = 5;
+  // (encryption key is shared across the fragment, so no need for a full trace here)
+  // to read an entire fragment, keep reading subkeys first from the same record as the header
+  // then potentially into other records listed in keys, for a total of ceil(size/chunk) subkeys
+  repeated veilid.RecordKey keys = 5;
 }
 
 // contents of a single Fragment subkey
@@ -88,8 +90,20 @@ message IndexHeader {
 // 0: LinksHeader
 // 1..?: Link
 
+// very similar to DHTShortArray, though limited to a single record.
+// Link entries are small anyway so we can still squeeze 255 of them in there
 message LinksHeader {
-  // TODO: build this out in a similar way to DHTShortArray
+  // index mapping logical positions to subkeys
+  // 255 bytes total, for the 255 other subkeys (0 is reserved for the header)
+  // subkey = index[n] + 1 (offset for header at index 0)
+  bytes index = 1;
+
+  // most recent sequence numbers for elements (255 entries)
+  // this is to ensure that we can detect changes by just looking at the header
+  // unlike index, this array is indexed by subkey, not logical position
+  // seq = seqs[n-1] (offset for header at index 0)
+  // (any entries that are 0 here indicate empty slots we can fill with new links)
+  repeated uint32 seqs = 2;
 }
 
 // links are essentially just named traces stored in a subkey

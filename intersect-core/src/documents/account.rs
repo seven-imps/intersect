@@ -6,7 +6,7 @@ use crate::{
         TypedReference,
     },
     models::{
-        AccountBio, AccountName, AccountPrivate, AccountPublic, Encrypted, RecordType, Trace,
+        AccountBio, AccountName, AccountPrivate, AccountPublic, DocumentType, Encrypted, Trace,
     },
     veilid::{RecordError, RecordPool, with_crypto},
 };
@@ -42,7 +42,7 @@ pub enum AccountUpdate {
 
 impl Document for AccountDocument {
     const MAX_SUBKEYS: u16 = LARGE_SUBKEYS;
-    const RECORD_TYPE: RecordType = RecordType::Account;
+    const DOCUMENT_TYPE: DocumentType = DocumentType::Account;
 
     type View = AccountView;
 

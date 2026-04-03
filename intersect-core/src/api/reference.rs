@@ -58,19 +58,19 @@ impl<D: Document> TypedReference<D> {
 
     pub fn to_unlocked_trace(&self) -> Trace {
         Trace::unlocked(
-            D::RECORD_TYPE,
+            D::DOCUMENT_TYPE,
             self.reference.record(),
             self.reference.secret(),
         )
     }
 
     pub fn to_locked_trace(&self) -> Trace {
-        Trace::locked(D::RECORD_TYPE, self.reference.record())
+        Trace::locked(D::DOCUMENT_TYPE, self.reference.record())
     }
 
     pub fn to_protected_trace(&self, password: &str) -> Result<Trace, EncryptionError> {
         Trace::protected(
-            D::RECORD_TYPE,
+            D::DOCUMENT_TYPE,
             self.reference.record(),
             self.reference.secret(),
             password,
@@ -86,8 +86,8 @@ impl<D: Document> TryFrom<Trace> for TypedReference<D> {
     type Error = TraceConversionError;
 
     fn try_from(trace: Trace) -> Result<Self, Self::Error> {
-        if trace.record_type() != &D::RECORD_TYPE {
-            return Err(TraceConversionError::WrongRecordType);
+        if trace.document_type() != &D::DOCUMENT_TYPE {
+            return Err(TraceConversionError::WrongDocumentType);
         }
         let Access::Unlocked { secret } = trace.access() else {
             return Err(TraceConversionError::LockedAccess);
@@ -103,7 +103,7 @@ impl<D: Document> TryFrom<Trace> for TypedReference<D> {
 #[non_exhaustive]
 pub enum TraceConversionError {
     #[error("trace record type does not match document type")]
-    WrongRecordType,
+    WrongDocumentType,
     #[error("trace access is locked or protected")]
     LockedAccess,
 }

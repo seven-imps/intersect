@@ -1,12 +1,3 @@
-// message AccountPublic {
-//     // full public key because it can't be derived from the memberid in the schema
-//     veilid.PublicKey public_key = 1;
-//     // TODO: limit to something short-ish in code. maybe 64 chars max?
-//     optional string name = 2; // max 64 bytes
-//     // TODO: make sure this is appropriately size limited in code to avoid  the 32kb total per subkey cap. say, 8kb max?
-//     optional string bio = 3;
-// }
-
 use guard_clause::guard;
 use veilid_core::{PublicKey, SecretKey};
 

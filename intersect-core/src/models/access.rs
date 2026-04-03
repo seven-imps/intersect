@@ -1,18 +1,3 @@
-// message Access {
-//     message Locked {}
-//     message Unlocked { veilid.SharedSecret secret = 1; }
-//     message Protected {
-//         veilid.Nonce salt = 1;          // salt for the password hash
-//         Encrypted encrypted_secret = 2; // Encrypted veilid.SharedSecret
-//     }
-
-//     oneof access_level {
-//         Locked locked = 1;
-//         Unlocked unlocked = 2;
-//         Protected protected = 3;
-//     }
-// }
-
 use thiserror::Error;
 use veilid_core::{Nonce, SharedSecret};
 

@@ -8,7 +8,7 @@ use veilid_core::KeyPair;
 
 use crate::{
     api::{Reference, TypedReference},
-    models::RecordType,
+    models::DocumentType,
     veilid::RecordPool,
 };
 
@@ -16,8 +16,8 @@ pub trait Document: Sized {
     /// number of subkeys on the root record. affects max subkey size.
     const MAX_SUBKEYS: u16;
 
-    /// the record type used when serialising a TypedReference to a Trace.
-    const RECORD_TYPE: RecordType;
+    /// the document type used when serialising a TypedReference to a Trace.
+    const DOCUMENT_TYPE: DocumentType;
 
     type View: PartialEq + Clone + Send + Sync + 'static;
 
