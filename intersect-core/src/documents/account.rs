@@ -26,7 +26,7 @@ fn private_encryption_key(identity: &KeyPair, reference: &Reference) -> SharedSe
 #[derive(PartialEq, Debug, Clone, Eq)]
 pub struct AccountDocument;
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct AccountView {
     pub public: AccountPublic,
     // None if identity not loaded or not the account owner.
@@ -69,7 +69,7 @@ impl Document for AccountDocument {
     }
 
     async fn create(
-        view: &AccountView,
+        view: AccountView,
         identity: &KeyPair,
         pool: &RecordPool,
     ) -> Result<TypedReference<AccountDocument>, DocumentError> {
@@ -92,7 +92,7 @@ impl Document for AccountDocument {
         }
 
         let record = pool.create(identity, Self::MAX_SUBKEYS).await?;
-        let reference = Reference::new(record.descriptor.key(), record.secret);
+        let reference = record.reference().clone();
 
         let public_encrypted = Encrypted::encrypt(&view.public, reference.secret())?;
         pool.write(&reference, 0, &public_encrypted, identity)

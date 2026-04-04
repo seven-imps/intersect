@@ -55,21 +55,20 @@ message Trace {
 message FragmentHeader {
   // hash of reassembled data to verify contents (of the *encrypted* data!)
   veilid.HashDigest hash = 1;
-  // chunk size per subkey (in bytes)
-  uint32 chunk = 2;
   // total data size (in bytes)
-  uint32 size = 3;
+  uint32 fragment_size = 2;
   // content type will be 'text/markdown;charset=UTF-8' for most intersect fragments
-  string mime = 4;
-  // other keys to concatenate (same writer key)
+  string mime = 3;
+  // overflow records sharing the same writer key and encryption
   // (encryption key is shared across the fragment, so no need for a full trace here)
   // to read an entire fragment, keep reading subkeys first from the same record as the header
-  // then potentially into other records listed in keys, for a total of ceil(size/chunk) subkeys
-  repeated veilid.RecordKey keys = 5;
+  // then continuing into overflow records, for a total of ceil(size/chunk) subkeys
+  repeated veilid.RecordKey overflow_keys = 4;
 }
 
-// contents of a single Fragment subkey
-message FragmentChunk { bytes data = 1; }
+// the assembled and decrypted content of a fragment
+// this is what will be encrypted, hashed, and chunked for storage
+message FragmentContent { bytes data = 1; }
 
 // ==== index record ====
 // indexes act as a sort of header for a "file" and also contain arbitrary links to other "files"

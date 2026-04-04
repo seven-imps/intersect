@@ -1856,6 +1856,7 @@ version = "0.1.0"
 dependencies = [
  "base58",
  "flume 0.12.0",
+ "futures",
  "guard-clause",
  "hex",
  "prost",

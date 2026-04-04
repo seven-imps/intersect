@@ -1,9 +1,9 @@
-use std::{collections::HashMap, sync::Mutex};
+use std::{collections::HashMap, sync::Mutex, time::Duration};
 
 use thiserror::Error;
 use veilid_core::{
-    DHTRecordDescriptor, DHTSchema, DHTSchemaSMPLMember, KeyPair, RecordKey, SetDHTValueOptions,
-    SharedSecret,
+    DHTRecordDescriptor, DHTReportScope, DHTSchema, DHTSchemaSMPLMember, KeyPair, RecordKey,
+    SetDHTValueOptions,
 };
 
 use crate::{
@@ -16,9 +16,23 @@ use crate::{
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct OpenRecord {
-    pub descriptor: DHTRecordDescriptor,
-    pub secret: SharedSecret,
+    descriptor: DHTRecordDescriptor,
+    reference: Reference,
     // updates: flume::Receiver<T::Update>,
+}
+
+impl OpenRecord {
+    pub fn descriptor(&self) -> &DHTRecordDescriptor {
+        &self.descriptor
+    }
+
+    pub fn reference(&self) -> &Reference {
+        &self.reference
+    }
+
+    pub fn key(&self) -> RecordKey {
+        self.descriptor.key()
+    }
 }
 
 pub struct RecordPool {
@@ -51,8 +65,8 @@ impl RecordPool {
             .map_err(|e| RecordError::OpenError(e.to_string()))?;
 
         let record = OpenRecord {
+            reference: reference.clone(),
             descriptor,
-            secret: reference.secret().clone(),
         };
 
         // use entry to avoid clobbering a concurrent insert
@@ -88,16 +102,18 @@ impl RecordPool {
             .await
             .map_err(|e| RecordError::CreateError(e.to_string()))?;
 
+        let key = descriptor.key();
+        let secret = with_crypto(|c| c.random_shared_secret());
         let record = OpenRecord {
-            descriptor: descriptor.clone(),
-            secret: with_crypto(|c| c.random_shared_secret()),
+            reference: Reference::new(key.clone(), secret),
+            descriptor,
         };
 
         // grab the lock as late as possible to avoid blocking while doing network operations
         self.open_records
             .lock()
             .unwrap()
-            .insert(descriptor.key(), record.clone());
+            .insert(key, record.clone());
 
         Ok(record)
     }
@@ -187,6 +203,29 @@ impl RecordPool {
     ) -> Result<(), RecordError> {
         let serialised = value.serialise()?;
         self.write_raw(reference, subkey, &serialised, writer).await
+    }
+
+    /// wait until all subkeys of a record have been flushed to the network.
+    /// veilid writes are submitted immediately but may queue as offline_subkey_writes
+    pub async fn wait_for_sync(&self, reference: &Reference) -> Result<(), RecordError> {
+        let record = self.get_or_open(reference).await?;
+        loop {
+            let report = self
+                .connection
+                .routing_context()
+                .inspect_dht_record(record.key(), None, DHTReportScope::Local)
+                .await
+                .map_err(|e| RecordError::ReadError(e.to_string()))?;
+            if report.offline_subkeys().is_empty() {
+                return Ok(());
+            }
+            debug!(
+                "waiting for record with key {} to sync, {} subkeys still offline",
+                record.key(),
+                report.offline_subkeys().len()
+            );
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
     }
 }
 

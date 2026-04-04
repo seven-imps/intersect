@@ -6,10 +6,10 @@ use veilid_core::{KeyPair, SecretKey};
 
 use crate::{
     api::{Document, DocumentError, MutableDocument, OpenDocument, TypedReference},
-    documents::{AccountDocument, AccountView},
+    documents::{AccountDocument, AccountView, FragmentDocument, FragmentView},
     models::{
-        AccountBio, AccountName, AccountPrivate, AccountPublic, EncryptionError, Trace,
-        ValidationError,
+        AccountBio, AccountName, AccountPrivate, AccountPublic, EncryptionError, FragmentMime,
+        Trace, ValidationError,
     },
     serialisation::{DeserialisationError, SerialisationError},
     veilid::{
@@ -176,6 +176,19 @@ impl Intersect {
             .map_err(Into::into)
     }
 
+    /// upload a fragment with a given mimetype to the network
+    pub async fn create_fragment(
+        &self,
+        data: Vec<u8>,
+        mime: FragmentMime,
+    ) -> Result<TypedReference<FragmentDocument>, IntersectError> {
+        let identity = self.identity().ok_or(IntersectError::InvalidLogin)?;
+        let view = FragmentView::new(data, mime);
+        FragmentDocument::create(view, &identity, &self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
     /// creates a new account, generating a keypair internally.
     /// returns the account reference and the secret key (save it to log in later).
     /// errors if already logged in.
@@ -200,7 +213,7 @@ impl Intersect {
             public,
             private: Some(private),
         };
-        let reference = AccountDocument::create(&view, &keypair, &self.pool).await?;
+        let reference = AccountDocument::create(view, &keypair, &self.pool).await?;
         let secret = keypair.secret();
         *self.identity.lock().unwrap() = Some(Identity {
             keypair,

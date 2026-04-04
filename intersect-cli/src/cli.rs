@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
@@ -15,6 +17,11 @@ pub enum Commands {
         #[command(subcommand)]
         what: CreateCommands,
     },
+    /// Fetch a fragment by trace and write it to a file
+    Fetch {
+        trace: String,
+        output: PathBuf,
+    },
     /// Open a document by trace
     Open {
         trace: String,
@@ -27,5 +34,11 @@ pub enum CreateCommands {
     Account {
         name: Option<String>,
         bio: Option<String>,
+    },
+    /// Upload a file as a fragment
+    Fragment {
+        path: PathBuf,
+        #[arg(long, default_value = "*/*")]
+        mime: String,
     },
 }

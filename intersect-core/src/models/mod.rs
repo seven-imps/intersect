@@ -2,6 +2,8 @@ pub mod account;
 pub use account::*;
 pub mod encrypted;
 pub use encrypted::*;
+pub mod fragment;
+pub use fragment::*;
 pub mod trace;
 pub use trace::*;
 pub mod access;
@@ -17,4 +19,6 @@ use thiserror::Error;
 pub enum ValidationError {
     #[error("field too long: {0}")]
     TooLong(String),
+    #[error("invalid value: {0}")]
+    Invalid(String),
 }

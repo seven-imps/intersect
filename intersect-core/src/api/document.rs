@@ -3,6 +3,7 @@ pub const LARGE_SUBKEYS: u16 = 32;
 // more subkeys = smaller max size per subkey (4kb each)
 pub const MANY_SUBKEYS: u16 = 256;
 
+use std::fmt::Debug;
 use tokio::sync::watch;
 use veilid_core::KeyPair;
 
@@ -19,7 +20,7 @@ pub trait Document: Sized {
     /// the document type used when serialising a TypedReference to a Trace.
     const DOCUMENT_TYPE: DocumentType;
 
-    type View: PartialEq + Clone + Send + Sync + 'static;
+    type View: PartialEq + Clone + Debug + Send + Sync + 'static;
 
     /// read the entire document and assemble it.
     /// everything should be discoverable from the root reference, put could potentially read from more records
@@ -34,8 +35,9 @@ pub trait Document: Sized {
         // (gotta be Send so it can be called from the WatchCoordinator task)
     ) -> impl Future<Output = Result<Self::View, DocumentError>> + Send + 'a;
 
+    // create takes an owned view to avoid unnnecessary cloning
     fn create(
-        view: &Self::View,
+        view: Self::View,
         identity: &KeyPair,
         pool: &RecordPool,
     ) -> impl Future<Output = Result<TypedReference<Self>, DocumentError>> + Send;
@@ -82,4 +84,10 @@ pub enum DocumentError {
 
     #[error("not authorised")]
     NotAuthorised,
+
+    #[error("hash mismatch: fragment data is corrupt or tampered")]
+    HashMismatch,
+
+    #[error("corrupt document: {0}")]
+    Corrupt(String),
 }

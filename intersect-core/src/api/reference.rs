@@ -40,7 +40,10 @@ pub struct TypedReference<D: Document> {
 // D is only used as a marker (PhantomData), so it doesn't need to be Clone itself.
 impl<D: Document> Clone for TypedReference<D> {
     fn clone(&self) -> Self {
-        Self { reference: self.reference.clone(), _phantom: PhantomData }
+        Self {
+            reference: self.reference.clone(),
+            _phantom: PhantomData,
+        }
     }
 }
 
