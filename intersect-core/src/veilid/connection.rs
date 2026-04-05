@@ -3,12 +3,12 @@ use thiserror::Error;
 
 use tokio::sync::watch;
 use veilid_core::{
-    AttachmentState, CryptoKind, CryptoSystemGuard, PublicKey, VeilidAPI, VeilidConfig,
-    VeilidStateAttachment, VeilidUpdate,
+    CryptoKind, CryptoSystemGuard, PublicKey, VeilidAPI, VeilidConfig, VeilidStateAttachment,
+    VeilidStateNetwork, VeilidUpdate,
 };
 
 use crate::veilid::{
-    StateAttachmentWatcher,
+    NetworkWatcher, is_attached,
     updates::{HandlerChain, UpdateDispatch, UpdateHandler, UpdateLogger},
 };
 
@@ -53,7 +53,7 @@ where
 pub struct Connection {
     veilid: VeilidAPI,
     update_handlers: Arc<Mutex<HandlerChain>>,
-    attachment_state_rx: Arc<Mutex<watch::Receiver<VeilidStateAttachment>>>,
+    network_watcher: Arc<NetworkWatcher>,
 }
 
 impl Connection {
@@ -66,7 +66,7 @@ impl Connection {
             update_source.update(update);
         });
 
-        let (attachment_watcher, attachment_state_rx) = StateAttachmentWatcher::new();
+        let network_watcher = Arc::new(NetworkWatcher::new());
 
         // initialise the api
         let veilid = veilid_core::api_startup(update_callback, Self::config(params))
@@ -77,21 +77,23 @@ impl Connection {
         let connection = Self {
             veilid,
             update_handlers,
-            attachment_state_rx: Arc::new(Mutex::new(attachment_state_rx)),
+            network_watcher,
         };
 
         // add default handlers
-        connection.add_update_handler(Box::new(attachment_watcher));
+        connection.add_update_handler(Box::new(Arc::clone(&connection.network_watcher)));
         connection.add_update_handler(Box::new(UpdateLogger::default()));
 
-        // boot up the node
-        connection
-            .veilid
+        Ok(connection)
+    }
+
+    /// start connecting to the network.
+    /// separated from init so we can initialise veilid without the network for tests and such.
+    pub async fn attach(&self) -> Result<(), ConnectionError> {
+        self.veilid
             .attach()
             .await
-            .map_err(|e| ConnectionError::StartupFailed(e.to_string()))?;
-
-        Ok(connection)
+            .map_err(|e| ConnectionError::StartupFailed(e.to_string()))
     }
 
     fn config(params: ConnectionParams) -> VeilidConfig {
@@ -131,25 +133,23 @@ impl Connection {
         self.update_handlers.lock().unwrap().add(handler);
     }
 
-    /// Waits until the connection is attached and ready for public internet use.
-    ///
-    /// This blocks until the Veilid node is fully connected and can communicate
-    /// over the public internet. Call this before performing network operations.
+    /// returns a receiver for veilid attachment state changes
+    pub fn attachment_state(&self) -> watch::Receiver<VeilidStateAttachment> {
+        self.network_watcher.subscribe_attachment()
+    }
+
+    /// returns a receiver for veilid network state changes
+    pub fn network_state(&self) -> watch::Receiver<VeilidStateNetwork> {
+        self.network_watcher.subscribe_network()
+    }
+
+    /// blocks until the node is attached and ready for public internet use
     pub async fn wait_for_attachment(&self) {
-        let is_attached = |attachment: &VeilidStateAttachment| {
-            let attached = matches!(
-                attachment.state,
-                AttachmentState::AttachedWeak
-                    | AttachmentState::AttachedGood
-                    | AttachmentState::AttachedStrong
-                    | AttachmentState::FullyAttached
-                    | AttachmentState::OverAttached
-            );
-            attachment.public_internet_ready && attached
-        };
-        // clone the receiver so the mutex is not held across the await
-        let mut rx = self.attachment_state_rx.lock().unwrap().clone();
-        rx.wait_for(is_attached).await.unwrap();
+        self.network_watcher
+            .subscribe_attachment()
+            .wait_for(is_attached)
+            .await
+            .unwrap();
     }
 
     /// Gets the underlying Veilid routing context.

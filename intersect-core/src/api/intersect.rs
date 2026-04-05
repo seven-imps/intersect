@@ -4,6 +4,8 @@ use guard_clause::guard;
 use thiserror::Error;
 use veilid_core::KeyPair;
 
+use tokio::sync::watch;
+
 use crate::{
     api::{Document, DocumentError, MutableDocument, OpenDocument, TypedReference},
     documents::{AccountDocument, AccountView, FragmentDocument, FragmentView},
@@ -13,8 +15,8 @@ use crate::{
     },
     serialisation::{DeserialisationError, SerialisationError},
     veilid::{
-        Connection, ConnectionError, ConnectionParams, RecordError, RecordPool, WatchCoordinators,
-        WatchRouter, with_crypto,
+        Connection, ConnectionError, ConnectionParams, NetworkState, RecordError, RecordPool,
+        WatchCoordinators, WatchRouter, watch_network_state, with_crypto,
     },
 };
 
@@ -24,17 +26,25 @@ pub struct Intersect {
     identity: Arc<Mutex<Option<Identity>>>,
     watch_router: Arc<WatchRouter>,
     coordinators: WatchCoordinators,
+    network_state_rx: watch::Receiver<NetworkState>,
 }
 
 impl Intersect {
     pub async fn init(connection_params: ConnectionParams) -> Result<Self, IntersectError> {
         let connection = Connection::init(connection_params).await?;
-        connection.wait_for_attachment().await;
 
-        let pool = Arc::new(RecordPool::new(connection.clone()));
+        let pool = RecordPool::new(connection.clone());
         let watch_router = Arc::new(WatchRouter::new());
-
         connection.add_update_handler(Box::new(Arc::clone(&watch_router)));
+
+        let network_state_rx = watch_network_state(
+            connection.attachment_state(),
+            connection.network_state(),
+            pool.pending_sync_watch(),
+        );
+
+        // only attach aftter setting up all the watchers so we avoid potential missed events or races
+        connection.attach().await?;
 
         crate::log!("intersect node initialised!");
 
@@ -44,7 +54,20 @@ impl Intersect {
             identity: Arc::new(Mutex::new(None)),
             watch_router,
             coordinators: WatchCoordinators::new(),
+            network_state_rx,
         })
+    }
+
+    /// returns a receiver for the combined network state.
+    /// clone it to get independent receivers
+    pub fn network_watch(&self) -> watch::Receiver<NetworkState> {
+        self.network_state_rx.clone()
+    }
+
+    /// waits until the node is attached and ready for public internet use.
+    /// call this before performing network operations.
+    pub async fn wait_for_attachment(&self) {
+        self.connection.wait_for_attachment().await;
     }
 
     pub async fn close(self) {

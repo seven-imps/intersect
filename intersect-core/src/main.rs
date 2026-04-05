@@ -16,6 +16,7 @@ async fn run() {
     log!("starting... (ephemeral: {})", ephemeral);
 
     let intersect = Intersect::init(connection_params).await.unwrap();
+    intersect.wait_for_attachment().await;
 
     // add scratchpad code here
 

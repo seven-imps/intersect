@@ -116,6 +116,7 @@ fn run_command(connection_params: ConnectionParams, command: Vec<String>) -> Res
                 std::process::exit(1);
             }
         };
+        intersect.wait_for_attachment().await;
 
         let (cmd_tx, cmd_rx) = std::sync::mpsc::sync_channel(CMD_CHANNEL_CAP);
         commands::execute(cli, intersect.clone(), cmd_tx).await;

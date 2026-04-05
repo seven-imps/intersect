@@ -1,6 +1,8 @@
+use std::sync::Arc;
 use std::{collections::HashMap, sync::Mutex, time::Duration};
 
 use thiserror::Error;
+use tokio::sync::watch;
 use veilid_core::{
     DHTRecordDescriptor, DHTReportScope, DHTSchema, DHTSchemaSMPLMember, KeyPair, RecordKey,
     SetDHTValueOptions,
@@ -13,6 +15,8 @@ use crate::{
     serialisation::{DeserialisationError, Deserialise, SerialisationError, Serialise},
     veilid::{CRYPTO_KIND, Connection, with_crypto},
 };
+
+const PENDING_SYNC_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct OpenRecord {
@@ -40,14 +44,49 @@ pub struct RecordPool {
     // otherwise get_or_open would need `&mut self` which would make it unusable in most contexts
     open_records: Mutex<HashMap<RecordKey, OpenRecord>>,
     connection: Connection,
+    pending_sync_tx: watch::Sender<usize>,
 }
 
 impl RecordPool {
-    pub fn new(connection: Connection) -> Self {
-        Self {
+    pub fn new(connection: Connection) -> Arc<Self> {
+        let (pending_sync_tx, _) = watch::channel(0usize);
+        let pool = Arc::new(Self {
             open_records: Mutex::new(HashMap::new()),
             connection,
-        }
+            pending_sync_tx,
+        });
+        // poll offline subkeys across all open records and broadcast the total.
+        // uses a weak ref so the task exits naturally when the pool is dropped.
+        let weak = Arc::downgrade(&pool);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(PENDING_SYNC_POLL_INTERVAL).await;
+                let Some(pool) = weak.upgrade() else { break };
+                let keys: Vec<RecordKey> =
+                    pool.open_records.lock().unwrap().keys().cloned().collect();
+                let mut total = 0usize;
+                // TODO: we may want to add a dirty flag to open records to avoid unnecessary checks.
+                // they're pretty cheap so probably ok for now, but it'd be much cleaner to avoid inspect calls if possible
+                for key in keys {
+                    if let Ok(report) = pool
+                        .connection
+                        .routing_context()
+                        .inspect_dht_record(key, None, DHTReportScope::Local)
+                        .await
+                    {
+                        total += report.offline_subkeys().len() as usize;
+                    }
+                }
+                pool.pending_sync_tx.send_replace(total);
+            }
+        });
+        pool
+    }
+
+    /// returns a receiver that tracks total offline subkeys across all open records.
+    /// updates approximately every 250ms.
+    pub fn pending_sync_watch(&self) -> watch::Receiver<usize> {
+        self.pending_sync_tx.subscribe()
     }
 
     pub async fn get_or_open(&self, reference: &Reference) -> Result<OpenRecord, RecordError> {
