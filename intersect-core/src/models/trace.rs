@@ -1,12 +1,11 @@
-use base58::{FromBase58, ToBase58};
 use veilid_core::{RecordKey, SharedSecret};
 
 use crate::{
     models::{Access, EncryptionError, ValidationError},
     proto,
     serialisation::{
-        DeserialisationError, Deserialise, SerialisableV1, SerialisationError, Serialise,
-        impl_v1_proto_conversions,
+        DeserialisationError, Deserialise, SerialisableV0, SerialisationError, Serialise,
+        impl_string_conversions, impl_v0_proto_conversions,
     },
 };
 
@@ -73,16 +72,16 @@ impl Trace {
     }
 }
 
-impl SerialisableV1 for Trace {
-    type Proto = proto::v1::intersect::Trace;
+impl SerialisableV0 for Trace {
+    type Proto = proto::v0::intersect::Trace;
 
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         Ok(Self::Proto {
             document_type: match self.document_type {
-                DocumentType::Account => proto::v1::intersect::DocumentType::Account as i32,
-                DocumentType::Fragment => proto::v1::intersect::DocumentType::Fragment as i32,
-                DocumentType::Index => proto::v1::intersect::DocumentType::Index as i32,
-                DocumentType::Links => proto::v1::intersect::DocumentType::Links as i32,
+                DocumentType::Account => proto::v0::intersect::DocumentType::Account as i32,
+                DocumentType::Fragment => proto::v0::intersect::DocumentType::Fragment as i32,
+                DocumentType::Index => proto::v0::intersect::DocumentType::Index as i32,
+                DocumentType::Links => proto::v0::intersect::DocumentType::Links as i32,
             },
             record: Some((&self.record).try_into()?),
             access: Some(self.access.to_proto()?),
@@ -90,14 +89,14 @@ impl SerialisableV1 for Trace {
     }
 
     fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
-        let document_type_proto = proto::v1::intersect::DocumentType::try_from(proto.document_type)
+        let document_type_proto = proto::v0::intersect::DocumentType::try_from(proto.document_type)
             .map_err(|_| DeserialisationError::Failed("invalid document type".to_string()))?;
 
         let document_type = match document_type_proto {
-            proto::v1::intersect::DocumentType::Account => DocumentType::Account,
-            proto::v1::intersect::DocumentType::Fragment => DocumentType::Fragment,
-            proto::v1::intersect::DocumentType::Index => DocumentType::Index,
-            proto::v1::intersect::DocumentType::Links => DocumentType::Links,
+            proto::v0::intersect::DocumentType::Account => DocumentType::Account,
+            proto::v0::intersect::DocumentType::Fragment => DocumentType::Fragment,
+            proto::v0::intersect::DocumentType::Index => DocumentType::Index,
+            proto::v0::intersect::DocumentType::Links => DocumentType::Links,
             _ => Err(DeserialisationError::Failed(
                 "invalid document type".to_string(),
             ))?,
@@ -114,36 +113,10 @@ impl SerialisableV1 for Trace {
     }
 }
 
-impl_v1_proto_conversions! {Trace}
+impl_v0_proto_conversions! {Trace}
 
 // string conversions
-
-impl std::fmt::Display for Trace {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.serialise().map_err(|_| std::fmt::Error)?.to_base58()
-        )
-    }
-}
-
-impl std::str::FromStr for Trace {
-    type Err = DeserialisationError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let bytes = s
-            .from_base58()
-            // .inspect_err(|e| match e {
-            //     base58::FromBase58Error::InvalidBase58Character(c, _) => {
-            //         println!("invalid char: {}", c)
-            //     }
-            //     base58::FromBase58Error::InvalidBase58Length => println!("invalid length"),
-            // })
-            .map_err(|_| DeserialisationError::Failed("invalid base58 encoding".to_string()))?;
-        Self::deserialise(&bytes)
-    }
-}
+impl_string_conversions! {Trace}
 
 #[cfg(test)]
 mod tests {

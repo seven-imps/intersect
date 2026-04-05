@@ -5,7 +5,7 @@ use crate::{
     models::ValidationError,
     proto,
     serialisation::{
-        DeserialisationError, SerialisableV1, SerialisationError, impl_v1_proto_conversions,
+        DeserialisationError, SerialisableV0, SerialisationError, impl_v0_proto_conversions,
     },
 };
 
@@ -101,12 +101,12 @@ impl FragmentHeader {
     }
 }
 
-impl SerialisableV1 for FragmentHeader {
-    type Proto = proto::v1::intersect::FragmentHeader;
+impl SerialisableV0 for FragmentHeader {
+    type Proto = proto::v0::intersect::FragmentHeader;
 
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         Ok(Self::Proto {
-            hash: Some(proto::v1::veilid::HashDigest::from(&self.hash)),
+            hash: Some(proto::v0::veilid::HashDigest::from(&self.hash)),
             fragment_size: self.fragment_size,
             mime: self.mime.as_ref().to_owned(),
             overflow_keys: self
@@ -134,7 +134,7 @@ impl SerialisableV1 for FragmentHeader {
     }
 }
 
-impl_v1_proto_conversions! {FragmentHeader}
+impl_v0_proto_conversions! {FragmentHeader}
 
 /// the reassembled and decrypted content of a fragment.
 /// this is what gets encrypted and chunked for storage.
@@ -155,8 +155,8 @@ impl FragmentContent {
     }
 }
 
-impl SerialisableV1 for FragmentContent {
-    type Proto = proto::v1::intersect::FragmentContent;
+impl SerialisableV0 for FragmentContent {
+    type Proto = proto::v0::intersect::FragmentContent;
 
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         Ok(Self::Proto {
@@ -169,4 +169,4 @@ impl SerialisableV1 for FragmentContent {
     }
 }
 
-impl_v1_proto_conversions! {FragmentContent}
+impl_v0_proto_conversions! {FragmentContent}

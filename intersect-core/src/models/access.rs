@@ -4,7 +4,7 @@ use veilid_core::{Nonce, SharedSecret};
 use crate::{
     models::{Encrypted, EncryptionError},
     serialisation::{
-        DeserialisationError, SerialisableV1, SerialisationError, impl_v1_proto_conversions,
+        DeserialisationError, SerialisableV0, SerialisationError, impl_v0_proto_conversions,
     },
     veilid::with_crypto,
 };
@@ -37,23 +37,23 @@ impl Access {
     // TODO: accessors? (how) do we handle that here?
 }
 
-impl SerialisableV1 for Access {
-    type Proto = crate::proto::v1::intersect::Access;
+impl SerialisableV0 for Access {
+    type Proto = crate::proto::v0::intersect::Access;
 
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         let access_level = match self {
-            Self::Locked => crate::proto::v1::intersect::access::AccessLevel::Locked(
-                crate::proto::v1::intersect::access::Locked {},
+            Self::Locked => crate::proto::v0::intersect::access::AccessLevel::Locked(
+                crate::proto::v0::intersect::access::Locked {},
             ),
             Self::Unlocked { secret } => {
-                crate::proto::v1::intersect::access::AccessLevel::Unlocked(
-                    crate::proto::v1::intersect::access::Unlocked {
-                        secret: Some(secret.to_proto()?),
+                crate::proto::v0::intersect::access::AccessLevel::Unlocked(
+                    crate::proto::v0::intersect::access::Unlocked {
+                        secret: Some(secret.into()),
                     },
                 )
             }
             Self::Protected { protected_secret } => {
-                crate::proto::v1::intersect::access::AccessLevel::Protected(
+                crate::proto::v0::intersect::access::AccessLevel::Protected(
                     protected_secret.to_proto()?,
                 )
             }
@@ -70,16 +70,16 @@ impl SerialisableV1 for Access {
                 "access_level".to_owned(),
             ))?;
         match access_level {
-            crate::proto::v1::intersect::access::AccessLevel::Locked(_) => Ok(Self::Locked),
-            crate::proto::v1::intersect::access::AccessLevel::Unlocked(unlocked) => {
+            crate::proto::v0::intersect::access::AccessLevel::Locked(_) => Ok(Self::Locked),
+            crate::proto::v0::intersect::access::AccessLevel::Unlocked(unlocked) => {
                 Ok(Self::Unlocked {
                     secret: unlocked
                         .secret
                         .ok_or(DeserialisationError::MissingField("secret".to_owned()))?
-                        .try_into()?,
+                        .into(),
                 })
             }
-            crate::proto::v1::intersect::access::AccessLevel::Protected(protected) => {
+            crate::proto::v0::intersect::access::AccessLevel::Protected(protected) => {
                 Ok(Self::Protected {
                     protected_secret: ProtectedSecret::from_proto(protected)?,
                 })
@@ -88,7 +88,7 @@ impl SerialisableV1 for Access {
     }
 }
 
-impl_v1_proto_conversions! {Access}
+impl_v0_proto_conversions! {Access}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ProtectedSecret {
@@ -114,23 +114,21 @@ impl ProtectedSecret {
     }
 }
 
-impl SerialisableV1 for ProtectedSecret {
-    type Proto = crate::proto::v1::intersect::access::Protected;
+impl SerialisableV0 for ProtectedSecret {
+    type Proto = crate::proto::v0::intersect::access::Protected;
 
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         Ok(Self::Proto {
-            salt: Some((&self.salt).try_into()?),
+            salt: Some((&self.salt).into()),
             encrypted_secret: Some(self.encrypted_secret.to_proto()?),
         })
     }
 
     fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
-        let salt = Nonce::new(
-            &proto
-                .salt
-                .ok_or(DeserialisationError::MissingField("salt".to_owned()))?
-                .data,
-        );
+        let salt: Nonce = proto
+            .salt
+            .ok_or(DeserialisationError::MissingField("salt".to_owned()))?
+            .into();
         let encrypted_secret = proto
             .encrypted_secret
             .ok_or(DeserialisationError::MissingField(
@@ -143,7 +141,7 @@ impl SerialisableV1 for ProtectedSecret {
     }
 }
 
-impl_v1_proto_conversions! {ProtectedSecret}
+impl_v0_proto_conversions! {ProtectedSecret}
 
 #[derive(Error, Debug, Clone)]
 #[non_exhaustive]

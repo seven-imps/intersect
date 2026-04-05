@@ -6,7 +6,7 @@ use arboard::Clipboard;
 use intersect_core::{
     api::{Intersect, TypedReference},
     documents::{AccountDocument, FragmentDocument},
-    models::{FragmentMime, Trace},
+    models::{AccountSecret, FragmentMime, Trace},
 };
 
 use crate::cli::{Cli, Commands, CreateCommands};
@@ -32,15 +32,53 @@ impl Tx {
 pub async fn execute(cli: Cli, intersect: Arc<Intersect>, raw_tx: SyncSender<Output>) {
     let tx = Tx(raw_tx);
     match cli.command {
+        Commands::Login { account, secret } => {
+            if account == "anonymous" {
+                match intersect.login_anonymous() {
+                    Ok(()) => tx.line("logged in anonymously"),
+                    Err(e) => tx.error(format!("{e}")),
+                }
+            } else {
+                let trace = match Trace::from_str(&account) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        tx.error(format!("invalid trace: {e}"));
+                        return;
+                    }
+                };
+                let secret = match secret.map(|s| s.parse::<AccountSecret>()) {
+                    Some(Ok(s)) => s,
+                    Some(Err(e)) => {
+                        tx.error(format!("invalid secret: {e}"));
+                        return;
+                    }
+                    None => {
+                        tx.error("secret required for account login".to_string());
+                        return;
+                    }
+                };
+                let typed_ref = match TypedReference::<AccountDocument>::from_trace(trace) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tx.error(format!("trace error: {e}"));
+                        return;
+                    }
+                };
+                match intersect.login(typed_ref, secret).await {
+                    Ok(()) => tx.line("logged in"),
+                    Err(e) => tx.error(format!("{e}")),
+                }
+            }
+        }
         Commands::Create {
             what: CreateCommands::Account { name, bio },
         } => match intersect.create_account(name, bio, None).await {
-            Ok((typed_ref, secret_key)) => {
+            Ok((typed_ref, secret)) => {
                 let trace = typed_ref.to_unlocked_trace();
                 tx.line("account created");
                 tx.line(format!("trace:  {trace}"));
                 copy_to_clipboard(&trace.to_string(), &tx);
-                tx.line(format!("secret: {secret_key}"));
+                tx.line(format!("secret: {secret}"));
             }
             Err(e) => tx.error(format!("{e}")),
         },

@@ -5,7 +5,8 @@ use crate::{
     models::{Trace, ValidationError},
     proto,
     serialisation::{
-        DeserialisationError, SerialisableV1, SerialisationError, impl_v1_proto_conversions,
+        DeserialisationError, Deserialise, SerialisableV0, SerialisationError, Serialise,
+        impl_string_conversions, impl_v0_proto_conversions,
     },
 };
 
@@ -94,12 +95,12 @@ impl AccountPublic {
     }
 }
 
-impl SerialisableV1 for AccountPublic {
-    type Proto = proto::v1::intersect::AccountPublic;
+impl SerialisableV0 for AccountPublic {
+    type Proto = proto::v0::intersect::AccountPublic;
 
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         Ok(Self::Proto {
-            public_key: Some(proto::v1::veilid::PublicKey::from(self.public_key())),
+            public_key: Some(proto::v0::veilid::PublicKey::from(self.public_key())),
             name: self.name().map(|n| n.as_ref().to_owned()),
             bio: self.bio().map(|b| b.as_ref().to_owned()),
             home: None, // TODO: implement home and add it here
@@ -118,14 +119,7 @@ impl SerialisableV1 for AccountPublic {
     }
 }
 
-impl_v1_proto_conversions! {AccountPublic}
-
-// message AccountPrivate {
-//     // contains the private key so that the account password can be independent from the keypair
-//     veilid.SecretKey private_key = 1;
-//     // Links record of bookmarked traces
-//     Trace bookmarks = 2;
-// }
+impl_v0_proto_conversions! {AccountPublic}
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct AccountPrivate {
@@ -134,11 +128,11 @@ pub struct AccountPrivate {
 }
 
 impl AccountPrivate {
-    pub fn new(private_key: SecretKey, bookmarks: Option<Trace>) -> Result<Self, ValidationError> {
-        Ok(Self {
+    pub fn new(private_key: SecretKey, bookmarks: Option<Trace>) -> Self {
+        Self {
             private_key,
             bookmarks,
-        })
+        }
     }
 
     pub fn private_key(&self) -> &SecretKey {
@@ -150,12 +144,12 @@ impl AccountPrivate {
     }
 }
 
-impl SerialisableV1 for AccountPrivate {
-    type Proto = proto::v1::intersect::AccountPrivate;
+impl SerialisableV0 for AccountPrivate {
+    type Proto = proto::v0::intersect::AccountPrivate;
 
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         Ok(Self::Proto {
-            private_key: Some(proto::v1::veilid::SecretKey::from(self.private_key())),
+            private_key: Some(proto::v0::veilid::SecretKey::from(self.private_key())),
             bookmarks: self.bookmarks().map(TryInto::try_into).transpose()?,
         })
     }
@@ -166,8 +160,46 @@ impl SerialisableV1 for AccountPrivate {
             .ok_or(DeserialisationError::MissingField("private_key".to_owned()))?
             .into();
         let bookmarks: Option<Trace> = proto.bookmarks.map(TryInto::try_into).transpose()?;
-        Ok(Self::new(private_key, bookmarks)?)
+        Ok(Self::new(private_key, bookmarks))
     }
 }
 
-impl_v1_proto_conversions! {AccountPrivate}
+impl_v0_proto_conversions! {AccountPrivate}
+
+/// an account's secret key, wrapped so it can be serialised/deserialised like other models.
+/// this is what `create_account` returns and `login` accepts.
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct AccountSecret(SecretKey);
+
+impl AccountSecret {
+    pub fn new(secret: SecretKey) -> Self {
+        Self(secret)
+    }
+}
+
+impl AsRef<SecretKey> for AccountSecret {
+    fn as_ref(&self) -> &SecretKey {
+        &self.0
+    }
+}
+
+impl SerialisableV0 for AccountSecret {
+    type Proto = proto::v0::intersect::AccountSecret;
+
+    fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
+        Ok(Self::Proto {
+            secret: Some(proto::v0::veilid::SecretKey::from(&self.0)),
+        })
+    }
+
+    fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
+        let secret: SecretKey = proto
+            .secret
+            .ok_or(DeserialisationError::MissingField("secret".to_owned()))?
+            .into();
+        Ok(Self(secret))
+    }
+}
+
+impl_v0_proto_conversions! {AccountSecret}
+impl_string_conversions! {AccountSecret}

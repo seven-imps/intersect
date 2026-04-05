@@ -12,20 +12,21 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Log in: 'anonymous' for ephemeral keypair, or <trace> <secret> for an account
+    Login {
+        /// account trace, or 'anonymous'
+        account: String,
+        secret: Option<String>,
+    },
     /// Create a new resource
     Create {
         #[command(subcommand)]
         what: CreateCommands,
     },
     /// Fetch a fragment by trace and write it to a file
-    Fetch {
-        trace: String,
-        output: PathBuf,
-    },
+    Fetch { trace: String, output: PathBuf },
     /// Open a document by trace
-    Open {
-        trace: String,
-    },
+    Open { trace: String },
 }
 
 #[derive(Debug, Subcommand)]

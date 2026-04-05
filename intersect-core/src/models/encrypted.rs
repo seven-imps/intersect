@@ -5,8 +5,8 @@ use veilid_core::{Nonce, SharedSecret};
 use crate::{
     proto,
     serialisation::{
-        DeserialisationError, Deserialise, SerialisableV1, SerialisationError, Serialise,
-        impl_v1_proto_conversions,
+        DeserialisationError, Deserialise, SerialisableV0, SerialisationError, Serialise,
+        impl_v0_proto_conversions,
     },
     veilid::with_crypto,
 };
@@ -104,23 +104,21 @@ impl Encrypted {
     }
 }
 
-impl SerialisableV1 for Encrypted {
-    type Proto = proto::v1::intersect::Encrypted;
+impl SerialisableV0 for Encrypted {
+    type Proto = proto::v0::intersect::Encrypted;
 
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         Ok(Self::Proto {
-            nonce: Some((&self.nonce).try_into()?),
+            nonce: Some((&self.nonce).into()),
             ciphertext: self.ciphertext.clone(),
         })
     }
 
     fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
-        let nonce = Nonce::new(
-            &proto
-                .nonce
-                .ok_or(DeserialisationError::MissingField("nonce".to_owned()))?
-                .data,
-        );
+        let nonce: Nonce = proto
+            .nonce
+            .ok_or(DeserialisationError::MissingField("nonce".to_owned()))?
+            .into();
         Ok(Self {
             nonce,
             ciphertext: proto.ciphertext,
@@ -128,7 +126,7 @@ impl SerialisableV1 for Encrypted {
     }
 }
 
-impl_v1_proto_conversions! {Encrypted}
+impl_v0_proto_conversions! {Encrypted}
 
 #[derive(Error, Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -137,7 +135,7 @@ pub enum EncryptionError {
     EncryptionFailed(String),
     #[error("decryption failed: {0}")]
     DecryptionFailed(String),
-    #[error("Serialisation failed: {0}")]
+    #[error("serialisation failed: {0}")]
     SerialisationFailed(#[from] SerialisationError),
     #[error("deserialisation failed: {0}")]
     DeserialisationFailed(#[from] DeserialisationError),

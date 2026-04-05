@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package v1.intersect;
+package v0.intersect;
 
 import "veilid.proto";
 
@@ -76,7 +76,8 @@ message FragmentContent { bytes data = 1; }
 
 message IndexHeader {
   // reference to the writer account
-  Trace account = 1;
+  // optional, will be unset if created with an anonymous login
+  optional Trace account = 1;
   // name for this "file"
   optional string name = 2;
   // content for this "file"
@@ -130,3 +131,7 @@ message AccountPrivate {
   // Links record of bookmarked traces
   optional Trace bookmarks = 2;
 }
+
+// the "password" for an account, currently derived from the account record key and private key
+// though this could be changed later. it's mostly here so we can easily (de)serialise it
+message AccountSecret { veilid.SecretKey secret = 1; }

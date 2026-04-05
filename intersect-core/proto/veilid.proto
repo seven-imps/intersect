@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package v1.veilid;
+package v0.veilid;
 
 // base types from
 // https://gitlab.com/veilid/veilidchat/-/blob/main/packages/veilid_support/lib/proto/veilid.proto

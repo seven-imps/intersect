@@ -2,14 +2,14 @@ use std::sync::{Arc, Mutex};
 
 use guard_clause::guard;
 use thiserror::Error;
-use veilid_core::{KeyPair, SecretKey};
+use veilid_core::KeyPair;
 
 use crate::{
     api::{Document, DocumentError, MutableDocument, OpenDocument, TypedReference},
     documents::{AccountDocument, AccountView, FragmentDocument, FragmentView},
     models::{
-        AccountBio, AccountName, AccountPrivate, AccountPublic, EncryptionError, FragmentMime,
-        Trace, ValidationError,
+        AccountBio, AccountName, AccountPrivate, AccountPublic, AccountSecret, EncryptionError,
+        FragmentMime, Trace, ValidationError,
     },
     serialisation::{DeserialisationError, SerialisationError},
     veilid::{
@@ -17,12 +17,6 @@ use crate::{
         WatchRouter, with_crypto,
     },
 };
-
-#[derive(Clone)]
-struct Identity {
-    keypair: KeyPair,
-    account: TypedReference<AccountDocument>,
-}
 
 pub struct Intersect {
     connection: Connection,
@@ -62,7 +56,7 @@ impl Intersect {
     pub async fn login(
         &self,
         account: TypedReference<AccountDocument>,
-        secret_key: SecretKey,
+        secret: AccountSecret,
     ) -> Result<(), IntersectError> {
         let reference = &account.reference;
 
@@ -72,10 +66,10 @@ impl Intersect {
 
         // reconstruct and validate the keypair
         guard!(
-            secret_key.kind() == public_key.kind(),
+            secret.as_ref().kind() == public_key.kind(),
             Err(IntersectError::InvalidLogin)
         );
-        let keypair = KeyPair::new_from_parts(public_key, secret_key.value());
+        let keypair = KeyPair::new_from_parts(public_key, secret.as_ref().value());
         let is_valid = with_crypto(|c| c.validate_keypair(&keypair.key(), &keypair.secret()))
             .map_err(|_| IntersectError::InvalidLogin)?;
         if !is_valid {
@@ -89,7 +83,7 @@ impl Intersect {
             return Err(IntersectError::InvalidLogin);
         }
 
-        *self.identity.lock().unwrap() = Some(Identity { keypair, account });
+        *self.identity.lock().unwrap() = Some(Identity::Account { keypair, account });
         Ok(())
     }
 
@@ -103,7 +97,7 @@ impl Intersect {
             .lock()
             .unwrap()
             .as_ref()
-            .map(|i| i.keypair.clone())
+            .map(|i| i.keypair().clone())
     }
 
     pub fn account(&self) -> Option<TypedReference<AccountDocument>> {
@@ -111,7 +105,7 @@ impl Intersect {
             .lock()
             .unwrap()
             .as_ref()
-            .map(|i| i.account.clone())
+            .and_then(|i| i.account().cloned())
     }
 
     /// one-time document retrieval guaranteed to return the most recent version on the network
@@ -189,16 +183,27 @@ impl Intersect {
             .map_err(Into::into)
     }
 
+    /// generates a fresh ephemeral keypair and sets it as the current identity.
+    /// allows signing/creating things without a persistent account record.
+    pub fn login_anonymous(&self) -> Result<(), IntersectError> {
+        if self.account().is_some() {
+            return Err(IntersectError::AlreadyLoggedIn);
+        }
+        let keypair = with_crypto(|c| c.generate_keypair());
+        *self.identity.lock().unwrap() = Some(Identity::Anonymous(keypair));
+        Ok(())
+    }
+
     /// creates a new account, generating a keypair internally.
     /// returns the account reference and the secret key (save it to log in later).
-    /// errors if already logged in.
+    /// errors if an account (non-anonymous) is already logged in.
     pub async fn create_account(
         &self,
         name: Option<String>,
         bio: Option<String>,
         home: Option<Trace>,
-    ) -> Result<(TypedReference<AccountDocument>, SecretKey), IntersectError> {
-        if self.identity().is_some() {
+    ) -> Result<(TypedReference<AccountDocument>, AccountSecret), IntersectError> {
+        if self.account().is_some() {
             return Err(IntersectError::AlreadyLoggedIn);
         }
         let keypair = with_crypto(|c| c.generate_keypair());
@@ -208,14 +213,14 @@ impl Intersect {
             bio.map(AccountBio::new).transpose()?,
             home,
         );
-        let private = AccountPrivate::new(keypair.secret(), None).unwrap();
+        let private = AccountPrivate::new(keypair.secret(), None);
         let view = AccountView {
             public,
             private: Some(private),
         };
         let reference = AccountDocument::create(view, &keypair, &self.pool).await?;
-        let secret = keypair.secret();
-        *self.identity.lock().unwrap() = Some(Identity {
+        let secret = AccountSecret::new(keypair.secret());
+        *self.identity.lock().unwrap() = Some(Identity::Account {
             keypair,
             account: reference.clone(),
         });
@@ -252,4 +257,29 @@ pub enum IntersectError {
 
     #[error("already logged in")]
     AlreadyLoggedIn,
+}
+
+#[derive(Clone)]
+enum Identity {
+    Anonymous(KeyPair),
+    Account {
+        keypair: KeyPair,
+        account: TypedReference<AccountDocument>,
+    },
+}
+
+impl Identity {
+    fn keypair(&self) -> &KeyPair {
+        match self {
+            Identity::Anonymous(keypair) => keypair,
+            Identity::Account { keypair, .. } => keypair,
+        }
+    }
+
+    fn account(&self) -> Option<&TypedReference<AccountDocument>> {
+        match self {
+            Identity::Anonymous(_) => None,
+            Identity::Account { account, .. } => Some(account),
+        }
+    }
 }
