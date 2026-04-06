@@ -16,6 +16,13 @@ pub enum ConnectionStrength {
     Strong,
 }
 
+/// number of records and subkeys not yet flushed to the DHT.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct PendingSync {
+    pub records: usize,
+    pub subkeys: usize,
+}
+
 /// combined network status: veilid attachment/bandwidth state plus
 /// the number of record subkeys not yet flushed to the DHT.
 #[derive(Clone, Debug, PartialEq)]
@@ -27,20 +34,7 @@ pub struct NetworkState {
     pub bps_down: u64,
     pub bps_up: u64,
     pub peer_count: usize,
-    pub pending_sync: usize,
-}
-
-impl Default for NetworkState {
-    fn default() -> Self {
-        Self {
-            strength: ConnectionStrength::Detached,
-            attached: false,
-            bps_down: 0,
-            bps_up: 0,
-            peer_count: 0,
-            pending_sync: 0,
-        }
-    }
+    pub pending_sync: PendingSync,
 }
 
 /// checks whether a veilid attachment state represents a usable network connection..
@@ -74,7 +68,7 @@ fn connection_strength(state: &AttachmentState) -> ConnectionStrength {
 pub fn watch_network_state(
     mut attachment_rx: watch::Receiver<VeilidStateAttachment>,
     mut network_rx: watch::Receiver<VeilidStateNetwork>,
-    mut pending_sync_rx: watch::Receiver<usize>,
+    mut pending_sync_rx: watch::Receiver<PendingSync>,
 ) -> watch::Receiver<NetworkState> {
     // seed from current receiver values to avoid stale data getting stuck without being overwritten by an event
     let initial = {
@@ -86,7 +80,7 @@ pub fn watch_network_state(
             bps_down: network.bps_down.as_u64(),
             bps_up: network.bps_up.as_u64(),
             peer_count: network.peers.len(),
-            pending_sync: *pending_sync_rx.borrow(),
+            pending_sync: pending_sync_rx.borrow().clone(),
         }
     };
     let (tx, rx) = watch::channel(initial.clone());
@@ -109,7 +103,7 @@ pub fn watch_network_state(
                 }
                 result = pending_sync_rx.changed() => {
                     if result.is_err() { break; }
-                    state.pending_sync = *pending_sync_rx.borrow_and_update();
+                    state.pending_sync = pending_sync_rx.borrow_and_update().clone();
                 }
             }
             tx.send_if_modified(|current| {

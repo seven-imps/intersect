@@ -1,7 +1,7 @@
 #![recursion_limit = "256"]
 // scratchpad for manual testing. superseded by intersect-cli.
 
-use intersect_core::{api::Intersect, log, veilid::ConnectionParams};
+use intersect_core::{ConnectionParams, Intersect, log};
 
 #[tokio::main]
 async fn main() {

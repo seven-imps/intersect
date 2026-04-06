@@ -13,7 +13,7 @@ use crate::{
     debug,
     models::Encrypted,
     serialisation::{DeserialisationError, Deserialise, SerialisationError, Serialise},
-    veilid::{CRYPTO_KIND, Connection, with_crypto},
+    veilid::{CRYPTO_KIND, Connection, PendingSync, with_crypto},
 };
 
 const PENDING_SYNC_POLL_INTERVAL: Duration = Duration::from_millis(250);
@@ -44,12 +44,12 @@ pub struct RecordPool {
     // otherwise get_or_open would need `&mut self` which would make it unusable in most contexts
     open_records: Mutex<HashMap<RecordKey, OpenRecord>>,
     connection: Connection,
-    pending_sync_tx: watch::Sender<usize>,
+    pending_sync_tx: watch::Sender<PendingSync>,
 }
 
 impl RecordPool {
     pub fn new(connection: Connection) -> Arc<Self> {
-        let (pending_sync_tx, _) = watch::channel(0usize);
+        let (pending_sync_tx, _) = watch::channel(PendingSync::default());
         let pool = Arc::new(Self {
             open_records: Mutex::new(HashMap::new()),
             connection,
@@ -64,7 +64,7 @@ impl RecordPool {
                 let Some(pool) = weak.upgrade() else { break };
                 let keys: Vec<RecordKey> =
                     pool.open_records.lock().unwrap().keys().cloned().collect();
-                let mut total = 0usize;
+                let mut pending = PendingSync::default();
                 // TODO: we may want to add a dirty flag to open records to avoid unnecessary checks.
                 // they're pretty cheap so probably ok for now, but it'd be much cleaner to avoid inspect calls if possible
                 for key in keys {
@@ -74,10 +74,14 @@ impl RecordPool {
                         .inspect_dht_record(key, None, DHTReportScope::Local)
                         .await
                     {
-                        total += report.offline_subkeys().len() as usize;
+                        let offline = report.offline_subkeys().len() as usize;
+                        if offline > 0 {
+                            pending.records += 1;
+                            pending.subkeys += offline;
+                        }
                     }
                 }
-                pool.pending_sync_tx.send_replace(total);
+                pool.pending_sync_tx.send_replace(pending);
             }
         });
         pool
@@ -85,7 +89,7 @@ impl RecordPool {
 
     /// returns a receiver that tracks total offline subkeys across all open records.
     /// updates approximately every 250ms.
-    pub fn pending_sync_watch(&self) -> watch::Receiver<usize> {
+    pub fn pending_sync_watch(&self) -> watch::Receiver<PendingSync> {
         self.pending_sync_tx.subscribe()
     }
 

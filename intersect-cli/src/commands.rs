@@ -4,9 +4,8 @@ use std::sync::{mpsc::SyncSender, Arc, Mutex, OnceLock};
 use arboard::Clipboard;
 
 use intersect_core::{
-    api::{Intersect, TypedReference},
-    documents::{AccountDocument, FragmentDocument},
     models::{AccountSecret, FragmentMime, Trace},
+    AccountDocument, FragmentDocument, Intersect, TypedReference,
 };
 
 use crate::cli::{Cli, Commands, CreateCommands};
@@ -33,13 +32,16 @@ pub async fn execute(cli: Cli, intersect: Arc<Intersect>, raw_tx: SyncSender<Out
     let tx = Tx(raw_tx);
     match cli.command {
         Commands::Login { account, secret } => {
-            if account == "anonymous" {
+            let is_anon = account
+                .as_deref()
+                .is_none_or(|a| matches!(a, "anon" | "anonymous"));
+            if is_anon {
                 match intersect.login_anonymous() {
                     Ok(()) => tx.line("logged in anonymously"),
                     Err(e) => tx.error(format!("{e}")),
                 }
             } else {
-                let trace = match Trace::from_str(&account) {
+                let trace = match Trace::from_str(account.as_deref().unwrap()) {
                     Ok(t) => t,
                     Err(e) => {
                         tx.error(format!("invalid trace: {e}"));

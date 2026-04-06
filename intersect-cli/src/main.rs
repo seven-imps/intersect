@@ -8,7 +8,7 @@ use cursive::{
     views::{Dialog, PaddedView, TextView},
     Cursive,
 };
-use intersect_core::{api::Intersect, veilid::ConnectionParams};
+use intersect_core::{ConnectionParams, Intersect};
 
 mod app;
 mod cli;
@@ -55,6 +55,7 @@ fn run_tui(connection_params: ConnectionParams) -> Result<()> {
     let cb_sink = siv.cb_sink().clone();
     let state = Arc::new(Mutex::new(app::AppState {
         intersect: None,
+        network_state_rx: None,
         cmd_tx,
         cmd_rx,
         stderr_rx,
@@ -67,7 +68,9 @@ fn run_tui(connection_params: ConnectionParams) -> Result<()> {
     rt.spawn(async move {
         match Intersect::init(connection_params).await {
             Ok(i) => {
-                st.lock().unwrap().intersect = Some(Arc::new(i));
+                let mut state = st.lock().unwrap();
+                state.network_state_rx = Some(i.network_watch());
+                state.intersect = Some(Arc::new(i));
                 let _ = cb.send(Box::new(|s: &mut Cursive| {
                     ui::pop_dialog(s);
                 }));

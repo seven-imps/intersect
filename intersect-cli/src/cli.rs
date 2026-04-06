@@ -12,10 +12,11 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    /// Log in: 'anonymous' for ephemeral keypair, or <trace> <secret> for an account
+    /// Log in: <trace> <secret> for an account. omit args or use 'anon'/'anonymous' for an ephemeral keypair.
     Login {
-        /// account trace, or 'anonymous'
-        account: String,
+        /// account trace
+        account: Option<String>,
+        /// account secret (required if account is specified)
         secret: Option<String>,
     },
     /// Create a new resource

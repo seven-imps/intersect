@@ -1,5 +1,9 @@
-use std::sync::{Arc, Mutex};
-
+use crate::cli::Cli;
+use crate::{
+    app::AppState,
+    commands::{self, Output},
+};
+use clap::Parser;
 use cursive::{
     event::{Callback, Event, EventResult, EventTrigger},
     theme::{BaseColor, BorderStyle, Color, ColorStyle, PaletteColor, PaletteStyle},
@@ -10,6 +14,10 @@ use cursive::{
     },
     Cursive, Printer,
 };
+use intersect_core::{ConnectionStrength, NetworkState};
+use std::sync::{Arc, Mutex, OnceLock};
+
+static SPEED_FMT: OnceLock<numfmt::Formatter> = OnceLock::new();
 
 // draws its child as if it always has focus — keeps the cursor visible
 // even when a scroll panel temporarily takes focus
@@ -36,15 +44,6 @@ impl<V: cursive::View> ViewWrapper for AlwaysFocused<V> {
         self.with_view(|v| v.draw(&p));
     }
 }
-
-use clap::Parser;
-
-use crate::{
-    app::AppState,
-    commands::{self, Output},
-};
-use crate::cli::Cli;
-
 type LogPanel = HideableView<Panel<NamedView<ScrollView<NamedView<TextView>>>>>;
 type LogPadding = HideableView<ResizedView<DummyView>>;
 
@@ -163,10 +162,20 @@ pub fn setup(siv: &mut Cursive) {
 
     let log_padding = HideableView::new(DummyView.fixed_height(1)).with_name("log-padding");
 
+    let (status_left, status_right) = format_status_bar(None);
     let header = Layer::with_color(
-        TextView::new(concat!(" intersect | v", env!("CARGO_PKG_VERSION")))
-            .full_width()
-            .fixed_height(1),
+        PaddedView::lrtb(
+            1,
+            1,
+            0,
+            0,
+            LinearLayout::horizontal()
+                .child(TextView::new(status_left).with_name("status-left"))
+                .child(DummyView.full_width())
+                .child(TextView::new(status_right).with_name("status-right")),
+        )
+        .full_width()
+        .fixed_height(1),
         ColorStyle::new(
             Color::Dark(BaseColor::Black),
             Color::Dark(BaseColor::Yellow),
@@ -202,7 +211,7 @@ pub fn setup(siv: &mut Cursive) {
     siv.call_on_name("log-panel", |v: &mut LogPanel| v.set_visible(false));
     siv.call_on_name("log-padding", |v: &mut LogPadding| v.set_visible(false));
 
-    push_dialog(siv, animated_dialog("connecting").title("intersect"));
+    push_dialog(siv, animated_dialog("initialising").title("intersect"));
 }
 
 fn on_refresh(s: &mut Cursive) {
@@ -211,7 +220,19 @@ fn on_refresh(s: &mut Cursive) {
 
     let cmd_lines: Vec<_> = std::iter::from_fn(|| state.cmd_rx.try_recv().ok()).collect();
     let log_lines: Vec<_> = std::iter::from_fn(|| state.stderr_rx.try_recv().ok()).collect();
+    let network = state
+        .network_state_rx
+        .as_ref()
+        .map(|rx| rx.borrow().clone());
     drop(state);
+
+    let (status_left, status_right) = format_status_bar(network.as_ref());
+    s.call_on_name("status-left", |view: &mut TextView| {
+        view.set_content(status_left)
+    });
+    s.call_on_name("status-right", |view: &mut TextView| {
+        view.set_content(status_right)
+    });
 
     if !cmd_lines.is_empty() {
         s.call_on_name("output", |v: &mut TextView| {
@@ -333,4 +354,52 @@ fn toggle_log(s: &mut Cursive) {
     s.call_on_name("log-padding", |v: &mut LogPadding| {
         v.set_visible(!v.is_visible());
     });
+}
+
+// returns (left, right) content for the status bar.
+fn format_status_bar(network: Option<&NetworkState>) -> (String, String) {
+    let prefix = format!("intersect │ v{}", env!("CARGO_PKG_VERSION"));
+
+    let pending = network.map(|state| &state.pending_sync);
+
+    let left = match pending {
+        Some(p) if p.records > 0 => format!("{prefix} │ pending: {} ({})", p.records, p.subkeys),
+        _ => prefix,
+    };
+
+    let network = network
+        .map(format_network_state)
+        .unwrap_or_else(|| "initialising...".into());
+
+    (left, network)
+}
+
+fn format_network_state(state: &NetworkState) -> String {
+    if !state.attached {
+        match state.strength {
+            ConnectionStrength::Attaching => "attaching...",
+            ConnectionStrength::Detaching => "detaching...",
+            ConnectionStrength::Detached => "detached",
+            ConnectionStrength::Weak | ConnectionStrength::Good | ConnectionStrength::Strong => {
+                "disconnected"
+            }
+        }
+        .to_owned()
+    } else {
+        // format with three significant digits so things don't jump around
+        let f = SPEED_FMT.get_or_init(|| "[~3b]B".parse().unwrap());
+        let up_speed = f.fmt_string(state.bps_up);
+        let down_speed = f.fmt_string(state.bps_down);
+
+        let strength = match state.strength {
+            ConnectionStrength::Weak => "■□□",
+            ConnectionStrength::Good => "■■□",
+            ConnectionStrength::Strong => "■■■",
+            ConnectionStrength::Attaching
+            | ConnectionStrength::Detaching
+            | ConnectionStrength::Detached => "□□□",
+        };
+
+        format!("[{strength}] │ ↑ {} │ ↓ {}", up_speed, down_speed)
+    }
 }

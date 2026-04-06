@@ -2,13 +2,20 @@
 
 // internal modules
 mod proto;
+mod serialisation;
+mod veilid;
 
 // public modules
-pub mod api;
-pub mod documents;
 pub mod models;
-pub mod serialisation;
-pub mod veilid;
+
+// main api and documents is public, but re exported so it isn't nested
+mod api;
+pub use api::*;
+mod documents;
+pub use documents::*;
+
+// and re-export anything from the internal modules that's used in the public api
+pub use veilid::{ConnectionParams, ConnectionStrength, NetworkState};
 
 /// platform agnostic logger
 #[macro_export]
