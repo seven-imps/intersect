@@ -248,9 +248,15 @@ impl RecordPool {
         self.write_raw(reference, subkey, &serialised, writer).await
     }
 
-    /// wait until all subkeys of a record have been flushed to the network.
-    /// veilid writes are submitted immediately but may queue as offline_subkey_writes
-    pub async fn wait_for_sync(&self, reference: &Reference) -> Result<(), RecordError> {
+    /// waits until all offline subkeys across all open records have been flushed to the network.
+    pub async fn wait_for_all_pending(&self) {
+        let mut rx = self.pending_sync_tx.subscribe();
+        // wait_for checks the current value first, so no race if already synced
+        let _ = rx.wait_for(|p| p.subkeys == 0).await;
+    }
+
+    /// waits until all pending subkeys on a record have been flushed to the network.
+    pub async fn wait_for_pending(&self, reference: &Reference) -> Result<(), RecordError> {
         let record = self.get_or_open(reference).await?;
         loop {
             let report = self

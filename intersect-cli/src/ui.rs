@@ -308,6 +308,11 @@ fn on_submit(s: &mut Cursive, text: &str) {
         }
     };
 
+    if matches!(cli.command, crate::cli::Commands::Exit) {
+        on_ctrl_c(s);
+        return;
+    }
+
     let Some(intersect) = intersect else {
         let _ = cmd_tx.send(Output::Error("not connected yet".to_string()));
         return;

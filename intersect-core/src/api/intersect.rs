@@ -71,6 +71,8 @@ impl Intersect {
     }
 
     pub async fn close(self) {
+        // drain pending writes before disconnecting
+        self.pool.wait_for_all_pending().await;
         self.connection.close().await;
     }
 

@@ -167,6 +167,8 @@ pub async fn execute(cli: Cli, intersect: Arc<Intersect>, raw_tx: SyncSender<Out
                 Err(e) => tx.error(format!("{e}")),
             }
         }
+        // handled at the ui layer before reaching here
+        Commands::Exit => {}
     }
 }
 

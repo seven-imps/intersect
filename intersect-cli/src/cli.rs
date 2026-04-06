@@ -28,6 +28,8 @@ pub enum Commands {
     Fetch { trace: String, output: PathBuf },
     /// Open a document by trace
     Open { trace: String },
+    /// Initiate graceful shutdown (same as ctrl+c; a second ctrl+c force-exits)
+    Exit,
 }
 
 #[derive(Debug, Subcommand)]
