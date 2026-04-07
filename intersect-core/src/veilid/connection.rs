@@ -153,8 +153,11 @@ impl Connection {
     }
 
     /// Gets the underlying Veilid routing context.
-    pub fn routing_context(&self) -> veilid_core::RoutingContext {
-        self.veilid.routing_context().unwrap() // it's fine
+    /// Returns an error if the connection has already been shut down or hasn't started yet.
+    pub fn routing_context(&self) -> Result<veilid_core::RoutingContext, ConnectionError> {
+        self.veilid
+            .routing_context()
+            .map_err(|_| ConnectionError::NoRoutingContext)
     }
 
     pub fn generate_member_id(&self, key: &PublicKey) -> veilid_core::MemberId {
@@ -167,6 +170,9 @@ impl Connection {
 pub enum ConnectionError {
     #[error("veilid startup failed: {0}")]
     StartupFailed(String),
+
+    #[error("no routing context")]
+    NoRoutingContext,
 }
 
 // // #[cfg(target_arch = "wasm32")]

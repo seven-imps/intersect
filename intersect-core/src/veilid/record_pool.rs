@@ -13,7 +13,7 @@ use crate::{
     debug,
     models::Encrypted,
     serialisation::{DeserialisationError, Deserialise, SerialisationError, Serialise},
-    veilid::{CRYPTO_KIND, Connection, PendingSync, with_crypto},
+    veilid::{CRYPTO_KIND, Connection, ConnectionError, PendingSync, with_crypto},
 };
 
 const PENDING_SYNC_POLL_INTERVAL: Duration = Duration::from_millis(250);
@@ -65,12 +65,15 @@ impl RecordPool {
                 let keys: Vec<RecordKey> =
                     pool.open_records.lock().unwrap().keys().cloned().collect();
                 let mut pending = PendingSync::default();
+                // break if we don't have a routing context so we don't panic
+                // if this loses a race during shutdown.
+                let Ok(ctx) = pool.connection.routing_context() else {
+                    break;
+                };
                 // TODO: we may want to add a dirty flag to open records to avoid unnecessary checks.
                 // they're pretty cheap so probably ok for now, but it'd be much cleaner to avoid inspect calls if possible
                 for key in keys {
-                    if let Ok(report) = pool
-                        .connection
-                        .routing_context()
+                    if let Ok(report) = ctx
                         .inspect_dht_record(key, None, DHTReportScope::Local)
                         .await
                     {
@@ -102,7 +105,7 @@ impl RecordPool {
         // slow path: open the record outside the lock (network call)
         let descriptor = self
             .connection
-            .routing_context()
+            .routing_context()?
             .open_dht_record(reference.record().clone(), None)
             .await
             .map_err(|e| RecordError::OpenError(e.to_string()))?;
@@ -140,7 +143,7 @@ impl RecordPool {
 
         let descriptor = self
             .connection
-            .routing_context()
+            .routing_context()?
             .create_dht_record(CRYPTO_KIND, schema, None)
             .await
             .map_err(|e| RecordError::CreateError(e.to_string()))?;
@@ -170,7 +173,7 @@ impl RecordPool {
         let record = self.get_or_open(reference).await?;
         let data = self
             .connection
-            .routing_context()
+            .routing_context()?
             .get_dht_value(record.descriptor.key(), subkey, force)
             .await
             .map_err(|e| RecordError::ReadError(e.to_string()))?
@@ -201,7 +204,7 @@ impl RecordPool {
     ) -> Result<(), RecordError> {
         let record = self.get_or_open(reference).await?;
         self.connection
-            .routing_context()
+            .routing_context()?
             .set_dht_value(
                 record.descriptor.key(),
                 subkey,
@@ -220,7 +223,7 @@ impl RecordPool {
     pub async fn watch(&self, reference: &Reference) -> Result<(), RecordError> {
         let record = self.get_or_open(reference).await?;
         self.connection
-            .routing_context()
+            .routing_context()?
             .watch_dht_values(record.descriptor.key(), None, None, None)
             .await
             .map_err(|e| RecordError::WatchError(e.to_string()))?;
@@ -230,7 +233,7 @@ impl RecordPool {
     pub async fn cancel_watch(&self, reference: &Reference) -> Result<(), RecordError> {
         let record = self.get_or_open(reference).await?;
         self.connection
-            .routing_context()
+            .routing_context()?
             .cancel_dht_watch(record.descriptor.key(), None)
             .await
             .map_err(|e| RecordError::WatchError(e.to_string()))?;
@@ -261,7 +264,7 @@ impl RecordPool {
         loop {
             let report = self
                 .connection
-                .routing_context()
+                .routing_context()?
                 .inspect_dht_record(record.key(), None, DHTReportScope::Local)
                 .await
                 .map_err(|e| RecordError::ReadError(e.to_string()))?;
@@ -307,4 +310,7 @@ pub enum RecordError {
 
     #[error("deserialisation error: {0}")]
     DeserialisationError(#[from] DeserialisationError),
+
+    #[error("{0}")]
+    ConnectionError(#[from] ConnectionError),
 }

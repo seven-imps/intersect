@@ -1,6 +1,6 @@
 #![recursion_limit = "512"]
 
-use std::sync::{Arc, Mutex};
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
 use anyhow::Result;
 use clap::Parser;
@@ -13,6 +13,7 @@ use intersect_core::{ConnectionParams, Intersect};
 mod app;
 mod cli;
 mod commands;
+mod prompt;
 mod stderr;
 mod ui;
 
@@ -60,6 +61,7 @@ fn run_tui(connection_params: ConnectionParams) -> Result<()> {
         cmd_rx,
         stderr_rx,
         closing: false,
+        force_capture: Arc::new(AtomicBool::new(true)),
     }));
     siv.set_user_data(state.clone());
     ui::setup(&mut siv);
@@ -122,7 +124,7 @@ fn run_command(connection_params: ConnectionParams, command: Vec<String>) -> Res
         intersect.wait_for_attachment().await;
 
         let (cmd_tx, cmd_rx) = std::sync::mpsc::sync_channel(CMD_CHANNEL_CAP);
-        commands::execute(cli, intersect.clone(), cmd_tx).await;
+        commands::execute(cli, intersect.clone(), cmd_tx, &prompt::StdinPrompt).await;
 
         let mut errored = false;
         for msg in std::iter::from_fn(|| cmd_rx.try_recv().ok()) {

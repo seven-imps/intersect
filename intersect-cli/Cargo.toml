@@ -13,6 +13,7 @@ cursive = "0.21"
 libc = "0.2"
 shlex = "1.3"
 arboard = "3"
+rpassword = "7.4.0"
 numfmt = "1.2.0"
 
 [[bin]]

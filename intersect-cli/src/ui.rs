@@ -15,7 +15,7 @@ use cursive::{
     Cursive, Printer,
 };
 use intersect_core::{ConnectionStrength, NetworkState};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{atomic::Ordering, Arc, Mutex, OnceLock};
 
 static SPEED_FMT: OnceLock<numfmt::Formatter> = OnceLock::new();
 
@@ -113,6 +113,13 @@ fn apply_theme(siv: &mut Cursive) {
 }
 
 pub fn setup(siv: &mut Cursive) {
+    let force_capture = siv
+        .user_data::<Arc<Mutex<AppState>>>()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .force_capture
+        .clone();
     apply_theme(siv);
     siv.set_fps(20);
     siv.add_global_callback(Event::Refresh, on_refresh);
@@ -120,10 +127,14 @@ pub fn setup(siv: &mut Cursive) {
     siv.set_on_pre_event(Event::CtrlChar('c'), on_ctrl_c);
     siv.set_on_pre_event('`', toggle_log); // pre-event so EditView doesn't eat it
 
-    // typing a char while a scroll panel has focus snaps back to the input
+    // typing a char while a scroll panel has focus snaps back to the command input.
+    // skipped when force_capture is false (e.g. a text-input dialog is open).
     siv.set_on_pre_event_inner(
         EventTrigger::from_fn(|e| matches!(e, Event::Char(c) if *c != '`')),
-        |event| {
+        move |event| {
+            if !force_capture.load(Ordering::Relaxed) {
+                return None;
+            }
             if let Event::Char(c) = *event {
                 Some(EventResult::Consumed(Some(Callback::from_fn(move |s| {
                     s.focus_name("input").ok();
@@ -318,8 +329,17 @@ fn on_submit(s: &mut Cursive, text: &str) {
         return;
     };
 
+    let force_capture = {
+        let state = s.user_data::<Arc<Mutex<AppState>>>().unwrap().clone();
+        let guard = state.lock().unwrap();
+        guard.force_capture.clone()
+    };
+    let prompt = crate::prompt::CursivePrompt {
+        cb_sink: s.cb_sink().clone(),
+        force_capture,
+    };
     tokio::spawn(async move {
-        commands::execute(cli, intersect, cmd_tx).await;
+        commands::execute(cli, intersect, cmd_tx, &prompt).await;
     });
 }
 

@@ -6,7 +6,10 @@ use arboard::Clipboard;
 
 use intersect_core::*;
 
-use crate::cli::{Cli, Commands, CreateCommands};
+use crate::{
+    cli::{Cli, Commands, CreateCommands},
+    prompt::Prompt,
+};
 
 pub enum Output {
     Line(String),
@@ -26,10 +29,17 @@ impl Tx {
     }
 }
 
-pub async fn execute(cli: Cli, intersect: Arc<Intersect>, raw_tx: SyncSender<Output>) {
+pub async fn execute(
+    cli: Cli,
+    intersect: Arc<Intersect>,
+    raw_tx: SyncSender<Output>,
+    prompt: &impl Prompt,
+) {
     let tx = Tx(raw_tx);
     let result = match cli.command {
-        Commands::Login { account, secret } => cmd_login(account, secret, &intersect, &tx).await,
+        Commands::Login { account, secret } => {
+            cmd_login(account, secret, &intersect, &tx, prompt).await
+        }
         Commands::Create {
             what:
                 CreateCommands::Account {
@@ -55,8 +65,10 @@ pub async fn execute(cli: Cli, intersect: Arc<Intersect>, raw_tx: SyncSender<Out
                     password,
                 },
         } => cmd_create_index(name, fragment, links, password, &intersect, &tx).await,
-        Commands::Fetch { trace, output } => cmd_fetch(trace, output, &intersect, &tx).await,
-        Commands::Open { trace } => cmd_open(trace, &intersect, &tx).await,
+        Commands::Fetch { trace, output } => {
+            cmd_fetch(trace, output, &intersect, &tx, prompt).await
+        }
+        Commands::Open { trace } => cmd_open(trace, &intersect, &tx, prompt).await,
         // handled at the ui layer before reaching here
         Commands::Exit => Ok(()),
     };
@@ -65,11 +77,32 @@ pub async fn execute(cli: Cli, intersect: Arc<Intersect>, raw_tx: SyncSender<Out
     }
 }
 
+// resolves an OpenedTrace to a usable TypedReference, prompting for a password if needed.
+async fn unlock_trace<D: Document>(
+    opened: OpenedTrace<D>,
+    prompt: &impl Prompt,
+) -> anyhow::Result<TypedReference<D>> {
+    match opened {
+        OpenedTrace::Unlocked(r) => Ok(r),
+        OpenedTrace::Locked(_) => Err(anyhow!(
+            "locked traces (requiring a raw secret) are not yet supported"
+        )),
+        OpenedTrace::Protected(protected_ref) => {
+            let password = prompt
+                .ask("password: ")
+                .await
+                .ok_or_else(|| anyhow!("cancelled"))?;
+            protected_ref.unlock(&password).context("wrong password")
+        }
+    }
+}
+
 async fn cmd_login(
     account: Option<String>,
     secret: Option<String>,
     intersect: &Intersect,
     tx: &Tx,
+    prompt: &impl Prompt,
 ) -> anyhow::Result<()> {
     let is_anon = account
         .as_deref()
@@ -84,16 +117,7 @@ async fn cmd_login(
         .ok_or_else(|| anyhow!("secret required for account login"))?
         .parse::<AccountSecret>()
         .context("invalid secret")?;
-    let typed_ref = match trace.open::<AccountDocument>()? {
-        OpenedTrace::Unlocked(r) => r,
-        OpenedTrace::Locked(_) => {
-            return Err(anyhow!("locked/protected traces are not yet supported"))
-        }
-        // TODO: prompt for password
-        OpenedTrace::Protected(_) => {
-            return Err(anyhow!("locked/protected traces are not yet supported"))
-        }
-    };
+    let typed_ref = unlock_trace(trace.open::<AccountDocument>()?, prompt).await?;
     intersect.login(typed_ref, secret).await?;
     tx.line("logged in");
     Ok(())
@@ -166,14 +190,12 @@ async fn cmd_fetch(
     output: Option<std::path::PathBuf>,
     intersect: &Intersect,
     tx: &Tx,
+    prompt: &impl Prompt,
 ) -> anyhow::Result<()> {
     let trace = Trace::from_str(&trace).context("invalid trace")?;
     match trace.document_type() {
         DocumentType::Fragment => {
-            let OpenedTrace::Unlocked(r) = trace.open::<FragmentDocument>()? else {
-                // TODO: prompt for password on protected, explain locked
-                return Err(anyhow!("locked/protected traces are not yet supported"));
-            };
+            let r = unlock_trace(trace.open::<FragmentDocument>()?, prompt).await?;
             let view = intersect.fetch(&r).await?;
             // TODO: implement Display for FragmentView
             match output {
@@ -186,10 +208,7 @@ async fn cmd_fetch(
             }
         }
         DocumentType::Account => {
-            let OpenedTrace::Unlocked(r) = trace.open::<AccountDocument>()? else {
-                // TODO: prompt for password on protected, explain locked
-                return Err(anyhow!("locked/protected traces are not yet supported"));
-            };
+            let r = unlock_trace(trace.open::<AccountDocument>()?, prompt).await?;
             let view = intersect.fetch(&r).await?;
             // TODO: implement Display for AccountView
             match output {
@@ -202,10 +221,7 @@ async fn cmd_fetch(
             }
         }
         DocumentType::Index => {
-            let OpenedTrace::Unlocked(r) = trace.open::<IndexDocument>()? else {
-                // TODO: prompt for password on protected, explain locked
-                return Err(anyhow!("locked/protected traces are not yet supported"));
-            };
+            let r = unlock_trace(trace.open::<IndexDocument>()?, prompt).await?;
             let view = intersect.fetch(&r).await?;
             // TODO: implement Display for IndexView
             match output {
@@ -222,14 +238,16 @@ async fn cmd_fetch(
     Ok(())
 }
 
-async fn cmd_open(trace: String, intersect: &Intersect, tx: &Tx) -> anyhow::Result<()> {
+async fn cmd_open(
+    trace: String,
+    intersect: &Intersect,
+    tx: &Tx,
+    prompt: &impl Prompt,
+) -> anyhow::Result<()> {
     let trace = Trace::from_str(&trace).context("invalid trace")?;
     match trace.document_type() {
         DocumentType::Account => {
-            let OpenedTrace::Unlocked(r) = trace.open::<AccountDocument>()? else {
-                // TODO: prompt for password on protected, explain locked
-                return Err(anyhow!("locked/protected traces are not yet supported"));
-            };
+            let r = unlock_trace(trace.open::<AccountDocument>()?, prompt).await?;
             let doc = intersect.open(&r).await?;
             let view = doc
                 .updates
@@ -241,10 +259,7 @@ async fn cmd_open(trace: String, intersect: &Intersect, tx: &Tx) -> anyhow::Resu
             tx.line(format!("{view:#?}"));
         }
         DocumentType::Index => {
-            let OpenedTrace::Unlocked(r) = trace.open::<IndexDocument>()? else {
-                // TODO: prompt for password on protected, explain locked
-                return Err(anyhow!("locked/protected traces are not yet supported"));
-            };
+            let r = unlock_trace(trace.open::<IndexDocument>()?, prompt).await?;
             let doc = intersect.open(&r).await?;
             let view = doc
                 .updates

@@ -1,4 +1,5 @@
 use std::sync::{
+    atomic::AtomicBool,
     mpsc::{Receiver, SyncSender},
     Arc,
 };
@@ -15,4 +16,7 @@ pub struct AppState {
     pub cmd_rx: Receiver<Output>,
     pub stderr_rx: Receiver<String>,
     pub closing: bool,
+    // when false, the global char pre-event passes events through
+    // instead of capturing them into the command input
+    pub force_capture: Arc<AtomicBool>,
 }
