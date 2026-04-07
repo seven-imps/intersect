@@ -4,7 +4,7 @@ use veilid_core::{RecordKey, SharedSecret};
 
 use crate::{
     api::Document,
-    models::{Access, EncryptionError, Trace},
+    models::{EncryptionError, Trace},
 };
 
 #[derive(PartialEq, Debug, Clone, Eq)]
@@ -79,34 +79,4 @@ impl<D: Document> TypedReference<D> {
             password,
         )
     }
-
-    pub fn from_trace(trace: Trace) -> Result<Self, TraceConversionError> {
-        trace.try_into()
-    }
-}
-
-impl<D: Document> TryFrom<Trace> for TypedReference<D> {
-    type Error = TraceConversionError;
-
-    fn try_from(trace: Trace) -> Result<Self, Self::Error> {
-        if trace.document_type() != &D::DOCUMENT_TYPE {
-            return Err(TraceConversionError::WrongDocumentType);
-        }
-        let Access::Unlocked { secret } = trace.access() else {
-            return Err(TraceConversionError::LockedAccess);
-        };
-        Ok(Self::new(Reference::new(
-            trace.record().clone(),
-            secret.clone(),
-        )))
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum TraceConversionError {
-    #[error("trace record type does not match document type")]
-    WrongDocumentType,
-    #[error("trace access is locked or protected")]
-    LockedAccess,
 }

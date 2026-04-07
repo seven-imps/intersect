@@ -1,4 +1,3 @@
-use base58::{FromBase58, ToBase58};
 use prost::Message;
 use thiserror::Error;
 
@@ -53,7 +52,14 @@ pub trait Serialise {
         let proto_bytes = match version {
             Version::V0 => self.serialise_v0()?,
         };
-        Ok(format!("{}:{}", version.as_str(), proto_bytes.to_base58()))
+        // TODO: TIL that base58 encoding runs in O(n^2) time...
+        // _should_ be fine here cause nothing we convert to a string will be huge,
+        // but look into https://carlmastrangelo.com/blog/a-better-base-58-encoding if this ever becomes a problem.
+        Ok(format!(
+            "{}:{}",
+            version.as_str(),
+            bs58::encode(&proto_bytes).into_string()
+        ))
     }
 
     fn serialise_v0(&self) -> Result<Vec<u8>, SerialisationError> {
@@ -94,8 +100,8 @@ where
             .try_into()
             .map_err(|_| DeserialisationError::InvalidMagic)?;
         let version = Version::from_fourcc(fourcc).ok_or(DeserialisationError::InvalidMagic)?;
-        let proto_bytes = rest
-            .from_base58()
+        let proto_bytes = bs58::decode(rest)
+            .into_vec()
             .map_err(|_| DeserialisationError::Failed("invalid base58 encoding".to_string()))?;
         match version {
             Version::V0 => Self::deserialise_v0(&proto_bytes),

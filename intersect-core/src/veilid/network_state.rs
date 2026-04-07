@@ -5,9 +5,8 @@ use crate::debug;
 
 /// connection quality from the user's perspective.
 /// collapses veilid's FullyAttached and OverAttached into Strong
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ConnectionStrength {
-    #[default]
     Detached,
     Attaching,
     Detaching,

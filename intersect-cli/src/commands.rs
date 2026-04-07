@@ -1,12 +1,10 @@
 use std::str::FromStr;
 use std::sync::{mpsc::SyncSender, Arc, Mutex, OnceLock};
 
+use anyhow::{anyhow, Context};
 use arboard::Clipboard;
 
-use intersect_core::{
-    models::{AccountSecret, FragmentMime, Trace},
-    AccountDocument, FragmentDocument, Intersect, TypedReference,
-};
+use intersect_core::*;
 
 use crate::cli::{Cli, Commands, CreateCommands};
 
@@ -30,180 +28,239 @@ impl Tx {
 
 pub async fn execute(cli: Cli, intersect: Arc<Intersect>, raw_tx: SyncSender<Output>) {
     let tx = Tx(raw_tx);
-    match cli.command {
-        Commands::Login { account, secret } => {
-            let is_anon = account
-                .as_deref()
-                .is_none_or(|a| matches!(a, "anon" | "anonymous"));
-            if is_anon {
-                match intersect.login_anonymous() {
-                    Ok(()) => tx.line("logged in anonymously"),
-                    Err(e) => tx.error(format!("{e}")),
-                }
-            } else {
-                let trace = match Trace::from_str(account.as_deref().unwrap()) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        tx.error(format!("invalid trace: {e}"));
-                        return;
-                    }
-                };
-                let secret = match secret.map(|s| s.parse::<AccountSecret>()) {
-                    Some(Ok(s)) => s,
-                    Some(Err(e)) => {
-                        tx.error(format!("invalid secret: {e}"));
-                        return;
-                    }
-                    None => {
-                        tx.error("secret required for account login".to_string());
-                        return;
-                    }
-                };
-                let typed_ref = match TypedReference::<AccountDocument>::from_trace(trace) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        tx.error(format!("trace error: {e}"));
-                        return;
-                    }
-                };
-                match intersect.login(typed_ref, secret).await {
-                    Ok(()) => tx.line("logged in"),
-                    Err(e) => tx.error(format!("{e}")),
-                }
-            }
-        }
+    let result = match cli.command {
+        Commands::Login { account, secret } => cmd_login(account, secret, &intersect, &tx).await,
         Commands::Create {
-            what: CreateCommands::Account { name, bio },
-        } => match intersect.create_account(name, bio, None).await {
-            Ok((typed_ref, secret)) => {
-                let trace = typed_ref.to_unlocked_trace();
-                tx.line("account created");
-                tx.line(format!("trace:  {trace}"));
-                copy_to_clipboard(&trace.to_string(), &tx);
-                tx.line(format!("secret: {secret}"));
-            }
-            Err(e) => tx.error(format!("{e}")),
-        },
+            what:
+                CreateCommands::Account {
+                    name,
+                    bio,
+                    password,
+                },
+        } => cmd_create_account(name, bio, password, &intersect, &tx).await,
         Commands::Create {
-            what: CreateCommands::Fragment { path, mime },
-        } => {
-            let data = match std::fs::read(&path) {
-                Ok(d) => d,
-                Err(e) => {
-                    tx.error(format!("failed to read {}: {e}", path.display()));
-                    return;
-                }
-            };
-            let mime = match FragmentMime::new(mime) {
-                Ok(m) => m,
-                Err(e) => {
-                    tx.error(format!("invalid mime type: {e}"));
-                    return;
-                }
-            };
-            match intersect.create_fragment(data, mime).await {
-                Ok(typed_ref) => {
-                    let trace = typed_ref.to_unlocked_trace();
-                    tx.line("fragment created");
-                    tx.line(format!("trace: {trace}"));
-                    copy_to_clipboard(&trace.to_string(), &tx);
-                }
-                Err(e) => tx.error(format!("{e}")),
-            }
-        }
-        Commands::Fetch { trace, output } => {
-            let trace = match Trace::from_str(&trace) {
-                Ok(t) => t,
-                Err(e) => {
-                    tx.error(format!("invalid trace: {e}"));
-                    return;
-                }
-            };
-            let typed_ref = match TypedReference::<FragmentDocument>::from_trace(trace) {
-                Ok(r) => r,
-                Err(e) => {
-                    tx.error(format!("trace error: {e}"));
-                    return;
-                }
-            };
-            match intersect.fetch(&typed_ref).await {
-                Ok(view) => {
-                    if let Err(e) = std::fs::write(&output, view.data()) {
-                        tx.error(format!("failed to write {}: {e}", output.display()));
-                        return;
-                    }
-                    tx.line(format!("written to {}", output.display()));
-                }
-                Err(e) => tx.error(format!("{e}")),
-            }
-        }
+            what:
+                CreateCommands::Fragment {
+                    path,
+                    mime,
+                    password,
+                },
+        } => cmd_create_fragment(path, mime, password, &intersect, &tx).await,
         Commands::Create {
             what:
                 CreateCommands::Index {
                     name,
                     fragment,
                     links,
+                    password,
                 },
-        } => {
-            let parse_trace =
-                |s: String| Trace::from_str(&s).map_err(|e| format!("invalid trace: {e}"));
-            let fragment = match fragment.map(parse_trace).transpose() {
-                Ok(t) => t,
-                Err(e) => {
-                    tx.error(e);
-                    return;
-                }
-            };
-            let links = match links.map(parse_trace).transpose() {
-                Ok(t) => t,
-                Err(e) => {
-                    tx.error(e);
-                    return;
-                }
-            };
-            match intersect.create_index(name, fragment, links).await {
-                Ok(typed_ref) => {
-                    let trace = typed_ref.to_unlocked_trace();
-                    tx.line("index created");
-                    tx.line(format!("trace: {trace}"));
-                    copy_to_clipboard(&trace.to_string(), &tx);
-                }
-                Err(e) => tx.error(format!("{e}")),
-            }
-        }
-        Commands::Open { trace } => {
-            let trace = match Trace::from_str(&trace) {
-                Ok(t) => t,
-                Err(e) => {
-                    tx.error(format!("invalid trace: {e}"));
-                    return;
-                }
-            };
-            let typed_ref = match TypedReference::<AccountDocument>::from_trace(trace) {
-                Ok(r) => r,
-                Err(e) => {
-                    tx.error(format!("trace error: {e}"));
-                    return;
-                }
-            };
-            match intersect.open(&typed_ref).await {
-                Ok(doc) => {
-                    let view = match doc.updates.borrow().as_ref() {
-                        Ok(v) => v.clone(),
-                        Err(e) => {
-                            tx.error(format!("{e}"));
-                            return;
-                        }
-                    };
-                    tx.line(format!("name: {:?}", view.name()));
-                    tx.line(format!("bio:  {:?}", view.bio()));
-                }
-                Err(e) => tx.error(format!("{e}")),
-            }
-        }
+        } => cmd_create_index(name, fragment, links, password, &intersect, &tx).await,
+        Commands::Fetch { trace, output } => cmd_fetch(trace, output, &intersect, &tx).await,
+        Commands::Open { trace } => cmd_open(trace, &intersect, &tx).await,
         // handled at the ui layer before reaching here
-        Commands::Exit => {}
+        Commands::Exit => Ok(()),
+    };
+    if let Err(e) = result {
+        tx.error(format!("{e:#}"));
     }
+}
+
+async fn cmd_login(
+    account: Option<String>,
+    secret: Option<String>,
+    intersect: &Intersect,
+    tx: &Tx,
+) -> anyhow::Result<()> {
+    let is_anon = account
+        .as_deref()
+        .is_none_or(|a| matches!(a, "anon" | "anonymous"));
+    if is_anon {
+        intersect.login_anonymous()?;
+        tx.line("logged in anonymously");
+        return Ok(());
+    }
+    let trace = Trace::from_str(account.as_deref().unwrap()).context("invalid trace")?;
+    let secret = secret
+        .ok_or_else(|| anyhow!("secret required for account login"))?
+        .parse::<AccountSecret>()
+        .context("invalid secret")?;
+    let typed_ref = match trace.open::<AccountDocument>()? {
+        OpenedTrace::Unlocked(r) => r,
+        OpenedTrace::Locked(_) => {
+            return Err(anyhow!("locked/protected traces are not yet supported"))
+        }
+        // TODO: prompt for password
+        OpenedTrace::Protected(_) => {
+            return Err(anyhow!("locked/protected traces are not yet supported"))
+        }
+    };
+    intersect.login(typed_ref, secret).await?;
+    tx.line("logged in");
+    Ok(())
+}
+
+async fn cmd_create_account(
+    name: Option<String>,
+    bio: Option<String>,
+    password: Option<String>,
+    intersect: &Intersect,
+    tx: &Tx,
+) -> anyhow::Result<()> {
+    let (typed_ref, secret) = intersect.create_account(name, bio, None).await?;
+    tx.line("account created");
+    print_trace(&typed_ref, password.as_deref(), tx)?;
+    tx.line(format!("secret: {secret}"));
+    Ok(())
+}
+
+async fn cmd_create_fragment(
+    path: std::path::PathBuf,
+    mime: String,
+    password: Option<String>,
+    intersect: &Intersect,
+    tx: &Tx,
+) -> anyhow::Result<()> {
+    let data =
+        std::fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mime = FragmentMime::new(mime).context("invalid mime type")?;
+    let typed_ref = intersect.create_fragment(data, mime).await?;
+    tx.line("fragment created");
+    print_trace(&typed_ref, password.as_deref(), tx)?;
+    Ok(())
+}
+
+async fn cmd_create_index(
+    name: String,
+    fragment: Option<String>,
+    links: Option<String>,
+    password: Option<String>,
+    intersect: &Intersect,
+    tx: &Tx,
+) -> anyhow::Result<()> {
+    let parse_trace = |s: String| Trace::from_str(&s).context("invalid trace");
+    let fragment = fragment.map(parse_trace).transpose()?;
+    let links = links.map(parse_trace).transpose()?;
+    let typed_ref = intersect.create_index(name, fragment, links).await?;
+    tx.line("index created");
+    print_trace(&typed_ref, password.as_deref(), tx)?;
+    Ok(())
+}
+
+fn print_trace<D: Document>(
+    typed_ref: &TypedReference<D>,
+    password: Option<&str>,
+    tx: &Tx,
+) -> anyhow::Result<()> {
+    let (trace, kind) = match password {
+        Some(pw) => (typed_ref.to_protected_trace(pw)?, "trace (protected)"),
+        None => (typed_ref.to_unlocked_trace(), "trace (unlocked)"),
+    };
+    let trace_str = trace.to_string();
+    tx.line(format!("{kind}: {trace_str}"));
+    copy_to_clipboard(&trace_str, tx);
+    Ok(())
+}
+
+async fn cmd_fetch(
+    trace: String,
+    output: Option<std::path::PathBuf>,
+    intersect: &Intersect,
+    tx: &Tx,
+) -> anyhow::Result<()> {
+    let trace = Trace::from_str(&trace).context("invalid trace")?;
+    match trace.document_type() {
+        DocumentType::Fragment => {
+            let OpenedTrace::Unlocked(r) = trace.open::<FragmentDocument>()? else {
+                // TODO: prompt for password on protected, explain locked
+                return Err(anyhow!("locked/protected traces are not yet supported"));
+            };
+            let view = intersect.fetch(&r).await?;
+            // TODO: implement Display for FragmentView
+            match output {
+                Some(path) => {
+                    std::fs::write(&path, view.data())
+                        .with_context(|| format!("failed to write {}", path.display()))?;
+                    tx.line(format!("written to {}", path.display()));
+                }
+                None => tx.line(format!("{view:#?}")),
+            }
+        }
+        DocumentType::Account => {
+            let OpenedTrace::Unlocked(r) = trace.open::<AccountDocument>()? else {
+                // TODO: prompt for password on protected, explain locked
+                return Err(anyhow!("locked/protected traces are not yet supported"));
+            };
+            let view = intersect.fetch(&r).await?;
+            // TODO: implement Display for AccountView
+            match output {
+                Some(path) => {
+                    std::fs::write(&path, format!("{view:#?}"))
+                        .with_context(|| format!("failed to write {}", path.display()))?;
+                    tx.line(format!("written to {}", path.display()));
+                }
+                None => tx.line(format!("{view:#?}")),
+            }
+        }
+        DocumentType::Index => {
+            let OpenedTrace::Unlocked(r) = trace.open::<IndexDocument>()? else {
+                // TODO: prompt for password on protected, explain locked
+                return Err(anyhow!("locked/protected traces are not yet supported"));
+            };
+            let view = intersect.fetch(&r).await?;
+            // TODO: implement Display for IndexView
+            match output {
+                Some(path) => {
+                    std::fs::write(&path, format!("{view:#?}"))
+                        .with_context(|| format!("failed to write {}", path.display()))?;
+                    tx.line(format!("written to {}", path.display()));
+                }
+                None => tx.line(format!("{view:#?}")),
+            }
+        }
+        DocumentType::Links => return Err(anyhow!("links documents are not yet supported")),
+    }
+    Ok(())
+}
+
+async fn cmd_open(trace: String, intersect: &Intersect, tx: &Tx) -> anyhow::Result<()> {
+    let trace = Trace::from_str(&trace).context("invalid trace")?;
+    match trace.document_type() {
+        DocumentType::Account => {
+            let OpenedTrace::Unlocked(r) = trace.open::<AccountDocument>()? else {
+                // TODO: prompt for password on protected, explain locked
+                return Err(anyhow!("locked/protected traces are not yet supported"));
+            };
+            let doc = intersect.open(&r).await?;
+            let view = doc
+                .updates
+                .borrow()
+                .as_ref()
+                .map_err(|e| anyhow!("{e}"))?
+                .clone();
+            // TODO: implement Display for AccountView
+            tx.line(format!("{view:#?}"));
+        }
+        DocumentType::Index => {
+            let OpenedTrace::Unlocked(r) = trace.open::<IndexDocument>()? else {
+                // TODO: prompt for password on protected, explain locked
+                return Err(anyhow!("locked/protected traces are not yet supported"));
+            };
+            let doc = intersect.open(&r).await?;
+            let view = doc
+                .updates
+                .borrow()
+                .as_ref()
+                .map_err(|e| anyhow!("{e}"))?
+                .clone();
+            // TODO: implement Display for IndexView
+            tx.line(format!("{view:#?}"));
+        }
+        DocumentType::Fragment => {
+            return Err(anyhow!("fragments are immutable, use fetch instead"))
+        }
+        DocumentType::Links => return Err(anyhow!("links documents are not yet supported")),
+    }
+    Ok(())
 }
 
 static CLIPBOARD: OnceLock<Option<Mutex<Clipboard>>> = OnceLock::new();

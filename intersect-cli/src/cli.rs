@@ -24,8 +24,11 @@ pub enum Commands {
         #[command(subcommand)]
         what: CreateCommands,
     },
-    /// Fetch a fragment by trace and write it to a file
-    Fetch { trace: String, output: PathBuf },
+    /// Fetch a document by trace. writes to file if output is given, otherwise prints.
+    Fetch {
+        trace: String,
+        output: Option<PathBuf>,
+    },
     /// Open a document by trace
     Open { trace: String },
     /// Initiate graceful shutdown (same as ctrl+c; a second ctrl+c force-exits)
@@ -38,12 +41,18 @@ pub enum CreateCommands {
     Account {
         name: Option<String>,
         bio: Option<String>,
+        /// encrypt the trace with a password before printing/copying
+        #[arg(long)]
+        password: Option<String>,
     },
     /// Upload a file as a fragment
     Fragment {
         path: PathBuf,
         #[arg(long, default_value = "*/*")]
         mime: String,
+        /// encrypt the trace with a password before printing/copying
+        #[arg(long)]
+        password: Option<String>,
     },
     /// Create a new index document
     Index {
@@ -54,5 +63,8 @@ pub enum CreateCommands {
         /// trace for the links record, if any
         #[arg(long)]
         links: Option<String>,
+        /// encrypt the trace with a password before printing/copying
+        #[arg(long)]
+        password: Option<String>,
     },
 }

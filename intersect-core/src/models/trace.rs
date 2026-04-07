@@ -1,7 +1,7 @@
 use veilid_core::{RecordKey, SharedSecret};
 
 use crate::{
-    models::{Access, EncryptionError, ValidationError},
+    models::{Access, EncryptionError},
     proto,
     serialisation::{
         DeserialisationError, Deserialise, SerialisableV0, SerialisationError, Serialise,
@@ -25,16 +25,12 @@ pub struct Trace {
 }
 
 impl Trace {
-    pub fn new(
-        document_type: DocumentType,
-        record: &RecordKey,
-        access: Access,
-    ) -> Result<Self, ValidationError> {
-        Ok(Self {
+    pub fn new(document_type: DocumentType, record: &RecordKey, access: Access) -> Self {
+        Self {
             document_type,
             record: record.clone(),
             access,
-        })
+        }
     }
 
     pub fn unlocked(
@@ -42,11 +38,11 @@ impl Trace {
         record: &RecordKey,
         secret: &SharedSecret,
     ) -> Self {
-        Self::new(document_type, record, Access::new_unlocked(secret)).unwrap()
+        Self::new(document_type, record, Access::new_unlocked(secret))
     }
 
     pub fn locked(document_type: DocumentType, record: &RecordKey) -> Self {
-        Self::new(document_type, record, Access::new_locked()).unwrap()
+        Self::new(document_type, record, Access::new_locked())
     }
 
     pub fn protected(
@@ -56,7 +52,7 @@ impl Trace {
         password: &str,
     ) -> Result<Self, EncryptionError> {
         let access = Access::new_protected(secret, password)?;
-        Ok(Self::new(document_type, record, access).unwrap())
+        Ok(Self::new(document_type, record, access))
     }
 
     pub fn document_type(&self) -> &DocumentType {
@@ -109,7 +105,7 @@ impl SerialisableV0 for Trace {
             .access
             .ok_or(DeserialisationError::MissingField("access".to_owned()))?
             .try_into()?;
-        Ok(Self::new(document_type, &record, access)?)
+        Ok(Self::new(document_type, &record, access))
     }
 }
 
@@ -130,7 +126,7 @@ mod tests {
         let key = RecordKey::from_str(
             "VLD0:sX9L_EV3JAy5ozyK875WErKAyFhBy4jZ-6DZajlDr9c:KpS0JtGg9OfJhpsIVCFY8FI9arViozN3kw3duglNkmY",
         ).unwrap();
-        let trace = Trace::new(DocumentType::Account, &key, Access::Locked).unwrap();
+        let trace = Trace::new(DocumentType::Account, &key, Access::Locked);
 
         // to string ...
         let trace_string = trace.to_string();

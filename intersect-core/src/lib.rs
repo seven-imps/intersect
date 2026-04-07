@@ -6,15 +6,16 @@ mod serialisation;
 mod veilid;
 
 // public modules
-pub mod models;
 
-// main api and documents is public, but re exported so it isn't nested
+// re-export the public API so users can just import intersect_core::* if their heart so desires
 mod api;
 pub use api::*;
 mod documents;
 pub use documents::*;
+pub mod models;
+pub use models::*;
 
-// and re-export anything from the internal modules that's used in the public api
+// and also re-export anything from the internal modules that's used in the public api
 pub use veilid::{ConnectionParams, ConnectionStrength, NetworkState};
 
 /// platform agnostic logger

@@ -322,12 +322,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "base58"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6107fe1be6682a68940da878d9e9f5e90ca5745b3dec9fd1bb393c8777d4f581"
-
-[[package]]
 name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -447,6 +441,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "812324ec2142bc1152978f22772cedd56cc617094d9d24fab05643149b4f185f"
 dependencies = [
  "time",
+]
+
+[[package]]
+name = "bs58"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf88ba1141d185c399bee5288d850d63b8369520c1eafc32a0430b5b6c287bf4"
+dependencies = [
+ "tinyvec",
 ]
 
 [[package]]
@@ -1854,7 +1857,7 @@ checksum = "71dd52191aae121e8611f1e8dc3e324dd0dd1dee1e6dd91d10ee07a3cfb4d9d8"
 name = "intersect-core"
 version = "0.1.0"
 dependencies = [
- "base58",
+ "bs58",
  "flume 0.12.0",
  "futures",
  "guard-clause",
