@@ -10,6 +10,8 @@ use crate::{
     },
 };
 
+const ACCOUNT_NAME_MAX_BYTES: usize = 64;
+
 /// account display name, max 64 bytes
 /// (note: distinct from 64 characters due to multi-byte unicode)
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -18,10 +20,10 @@ pub struct AccountName(String);
 impl AccountName {
     pub fn new(name: String) -> Result<Self, ValidationError> {
         guard!(
-            name.len() <= 64,
-            Err(ValidationError::TooLong(
-                "name can be at most 64 bytes".to_string()
-            ))
+            name.len() <= ACCOUNT_NAME_MAX_BYTES,
+            Err(ValidationError::TooLong(format!(
+                "name can be at most {ACCOUNT_NAME_MAX_BYTES} bytes"
+            )))
         );
         Ok(Self(name))
     }
@@ -57,10 +59,10 @@ impl AsRef<str> for AccountBio {
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct AccountPublic {
-    pub public_key: PublicKey,
-    pub name: Option<AccountName>,
-    pub bio: Option<AccountBio>,
-    pub home: Option<Trace>,
+    public_key: PublicKey,
+    name: Option<AccountName>,
+    bio: Option<AccountBio>,
+    home: Option<Trace>,
 }
 
 impl AccountPublic {
@@ -81,17 +83,24 @@ impl AccountPublic {
     pub fn public_key(&self) -> &PublicKey {
         &self.public_key
     }
-
     pub fn name(&self) -> Option<&AccountName> {
         self.name.as_ref()
     }
-
     pub fn bio(&self) -> Option<&AccountBio> {
         self.bio.as_ref()
     }
-
     pub fn home(&self) -> Option<&Trace> {
         self.home.as_ref()
+    }
+
+    pub fn with_name(self, name: Option<AccountName>) -> Self {
+        Self { name, ..self }
+    }
+    pub fn with_bio(self, bio: Option<AccountBio>) -> Self {
+        Self { bio, ..self }
+    }
+    pub fn with_home(self, home: Option<Trace>) -> Self {
+        Self { home, ..self }
     }
 }
 

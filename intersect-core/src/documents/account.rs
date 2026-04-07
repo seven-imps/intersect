@@ -1,4 +1,4 @@
-use veilid_core::{KeyPair, SharedSecret};
+use veilid_core::{KeyPair, PublicKey, SharedSecret};
 
 use crate::{
     api::{
@@ -28,9 +28,46 @@ pub struct AccountDocument;
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct AccountView {
-    pub public: AccountPublic,
-    // None if identity not loaded or not the account owner.
-    pub private: Option<AccountPrivate>,
+    public_key: PublicKey,
+    name: Option<AccountName>,
+    bio: Option<AccountBio>,
+    home: Option<Trace>,
+    // None if identity not loaded or not the account owner
+    private: Option<AccountPrivate>,
+}
+
+impl AccountView {
+    pub fn new(
+        public_key: PublicKey,
+        name: Option<AccountName>,
+        bio: Option<AccountBio>,
+        home: Option<Trace>,
+        private: Option<AccountPrivate>,
+    ) -> Self {
+        Self {
+            public_key,
+            name,
+            bio,
+            home,
+            private,
+        }
+    }
+
+    pub fn public_key(&self) -> &veilid_core::PublicKey {
+        &self.public_key
+    }
+    pub fn name(&self) -> Option<&AccountName> {
+        self.name.as_ref()
+    }
+    pub fn bio(&self) -> Option<&AccountBio> {
+        self.bio.as_ref()
+    }
+    pub fn home(&self) -> Option<&Trace> {
+        self.home.as_ref()
+    }
+    pub fn private(&self) -> Option<&AccountPrivate> {
+        self.private.as_ref()
+    }
 }
 
 pub enum AccountUpdate {
@@ -56,6 +93,7 @@ impl Document for AccountDocument {
             .read(reference, 0, force)
             .await?
             .decrypt(reference.secret())?;
+
         let owner = identity.filter(|id| id.key() == *public.public_key());
         let private = match owner {
             None => None,
@@ -65,7 +103,14 @@ impl Document for AccountDocument {
                 Err(e) => return Err(e.into()),
             },
         };
-        Ok(AccountView { public, private })
+
+        Ok(AccountView {
+            public_key: public.public_key().clone(),
+            name: public.name().cloned(),
+            bio: public.bio().cloned(),
+            home: public.home().cloned(),
+            private,
+        })
     }
 
     async fn create(
@@ -81,25 +126,29 @@ impl Document for AccountDocument {
             return Err(DocumentError::NotAuthorised);
         }
 
-        // ensure private section is present
-        let private = view.private.as_ref().ok_or(DocumentError::NotAuthorised)?;
-
-        // ensure keys in view match identity
-        if view.public.public_key() != &identity.key()
-            || private.private_key() != &identity.secret()
-        {
+        // destructure early so we can move fields without borrow conflicts
+        let AccountView {
+            public_key,
+            name,
+            bio,
+            home,
+            private,
+        } = view;
+        let private = private.ok_or(DocumentError::NotAuthorised)?;
+        if public_key != identity.key() || private.private_key() != &identity.secret() {
             return Err(DocumentError::NotAuthorised);
         }
 
         let record = pool.create(identity, Self::MAX_SUBKEYS).await?;
         let reference = record.reference().clone();
 
-        let public_encrypted = Encrypted::encrypt(&view.public, reference.secret())?;
+        let public = AccountPublic::new(public_key, name, bio, home);
+        let public_encrypted = Encrypted::encrypt(&public, reference.secret())?;
         pool.write(&reference, 0, &public_encrypted, identity)
             .await?;
 
         let key = private_encryption_key(identity, &reference);
-        let private_encrypted = Encrypted::encrypt(private, &key)?;
+        let private_encrypted = Encrypted::encrypt(&private, &key)?;
         pool.write(&reference, 1, &private_encrypted, identity)
             .await?;
 
@@ -119,13 +168,13 @@ impl MutableDocument for AccountDocument {
         // most recent view. guaranteed to be fresh (network delays aside) since an OpenDocument always has a watch on the record.
         // clone so we don't hold the lock across a bunch of network operations.
         let view = doc.updates.borrow().clone()?;
-        let public = view.public;
         let reference = doc.reference.reference();
 
+        let base = AccountPublic::new(view.public_key, view.name, view.bio, view.home);
         let updated = match update {
-            AccountUpdate::Name(name) => AccountPublic { name, ..public },
-            AccountUpdate::Bio(bio) => AccountPublic { bio, ..public },
-            AccountUpdate::Home(home) => AccountPublic { home, ..public },
+            AccountUpdate::Name(name) => base.with_name(name),
+            AccountUpdate::Bio(bio) => base.with_bio(bio),
+            AccountUpdate::Home(home) => base.with_home(home),
         };
 
         let encrypted = Encrypted::encrypt(&updated, reference.secret())?;

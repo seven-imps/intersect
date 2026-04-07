@@ -4,6 +4,8 @@ pub mod encrypted;
 pub use encrypted::*;
 pub mod fragment;
 pub use fragment::*;
+pub mod index;
+pub use index::*;
 pub mod trace;
 pub use trace::*;
 pub mod access;

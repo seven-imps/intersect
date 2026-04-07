@@ -137,6 +137,40 @@ pub async fn execute(cli: Cli, intersect: Arc<Intersect>, raw_tx: SyncSender<Out
                 Err(e) => tx.error(format!("{e}")),
             }
         }
+        Commands::Create {
+            what:
+                CreateCommands::Index {
+                    name,
+                    fragment,
+                    links,
+                },
+        } => {
+            let parse_trace =
+                |s: String| Trace::from_str(&s).map_err(|e| format!("invalid trace: {e}"));
+            let fragment = match fragment.map(parse_trace).transpose() {
+                Ok(t) => t,
+                Err(e) => {
+                    tx.error(e);
+                    return;
+                }
+            };
+            let links = match links.map(parse_trace).transpose() {
+                Ok(t) => t,
+                Err(e) => {
+                    tx.error(e);
+                    return;
+                }
+            };
+            match intersect.create_index(name, fragment, links).await {
+                Ok(typed_ref) => {
+                    let trace = typed_ref.to_unlocked_trace();
+                    tx.line("index created");
+                    tx.line(format!("trace: {trace}"));
+                    copy_to_clipboard(&trace.to_string(), &tx);
+                }
+                Err(e) => tx.error(format!("{e}")),
+            }
+        }
         Commands::Open { trace } => {
             let trace = match Trace::from_str(&trace) {
                 Ok(t) => t,
@@ -161,8 +195,8 @@ pub async fn execute(cli: Cli, intersect: Arc<Intersect>, raw_tx: SyncSender<Out
                             return;
                         }
                     };
-                    tx.line(format!("name: {:?}", view.public.name()));
-                    tx.line(format!("bio:  {:?}", view.public.bio()));
+                    tx.line(format!("name: {:?}", view.name()));
+                    tx.line(format!("bio:  {:?}", view.bio()));
                 }
                 Err(e) => tx.error(format!("{e}")),
             }

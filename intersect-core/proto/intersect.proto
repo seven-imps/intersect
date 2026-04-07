@@ -75,11 +75,11 @@ message FragmentContent { bytes data = 1; }
 // 0: IndexHeader
 
 message IndexHeader {
+  // name for this "file"
+  string name = 1;
   // reference to the writer account
   // optional, will be unset if created with an anonymous login
-  optional Trace account = 1;
-  // name for this "file"
-  optional string name = 2;
+  optional Trace account = 2;
   // content for this "file"
   optional Trace fragment = 3;
   // links to other indexes

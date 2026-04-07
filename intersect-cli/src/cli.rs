@@ -45,4 +45,14 @@ pub enum CreateCommands {
         #[arg(long, default_value = "*/*")]
         mime: String,
     },
+    /// Create a new index document
+    Index {
+        name: String,
+        /// trace for the content fragment, if any
+        #[arg(long)]
+        fragment: Option<String>,
+        /// trace for the links record, if any
+        #[arg(long)]
+        links: Option<String>,
+    },
 }

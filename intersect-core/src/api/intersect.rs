@@ -8,10 +8,12 @@ use tokio::sync::watch;
 
 use crate::{
     api::{Document, DocumentError, MutableDocument, OpenDocument, TypedReference},
-    documents::{AccountDocument, AccountView, FragmentDocument, FragmentView},
+    documents::{
+        AccountDocument, AccountView, FragmentDocument, FragmentView, IndexDocument, IndexView,
+    },
     models::{
-        AccountBio, AccountName, AccountPrivate, AccountPublic, AccountSecret, EncryptionError,
-        FragmentMime, Trace, ValidationError,
+        AccountBio, AccountName, AccountPrivate, AccountSecret, EncryptionError, FragmentMime,
+        IndexName, Trace, ValidationError,
     },
     serialisation::{DeserialisationError, SerialisationError},
     veilid::{
@@ -87,7 +89,7 @@ impl Intersect {
 
         // public key can't be derived from the reference alone, so read it from the record first
         let public_view = AccountDocument::read(reference, None, true, &self.pool).await?;
-        let public_key = public_view.public.public_key;
+        let public_key = public_view.public_key().clone();
 
         // reconstruct and validate the keypair
         guard!(
@@ -103,7 +105,7 @@ impl Intersect {
 
         // second pass: read with identity to verify stored private key matches
         let full_view = AccountDocument::read(reference, Some(&keypair), false, &self.pool).await?;
-        let private = full_view.private.ok_or(IntersectError::InvalidLogin)?;
+        let private = full_view.private().ok_or(IntersectError::InvalidLogin)?;
         if private.private_key() != &keypair.secret() {
             return Err(IntersectError::InvalidLogin);
         }
@@ -195,6 +197,21 @@ impl Intersect {
             .map_err(Into::into)
     }
 
+    /// create a new index document.
+    /// the author account is automatically pulled from the current session (absent for anon logins).
+    pub async fn create_index(
+        &self,
+        name: String,
+        fragment: Option<Trace>,
+        links: Option<Trace>,
+    ) -> Result<TypedReference<IndexDocument>, IntersectError> {
+        let identity = self.identity().ok_or(IntersectError::InvalidLogin)?;
+        // convert the account reference to an unlocked trace so the reader can follow it
+        let account = self.account().map(|r| r.to_unlocked_trace());
+        let view = IndexView::new(IndexName::new(name)?, account, fragment, links);
+        Ok(IndexDocument::create(view, &identity, &self.pool).await?)
+    }
+
     /// upload a fragment with a given mimetype to the network
     pub async fn create_fragment(
         &self,
@@ -203,9 +220,7 @@ impl Intersect {
     ) -> Result<TypedReference<FragmentDocument>, IntersectError> {
         let identity = self.identity().ok_or(IntersectError::InvalidLogin)?;
         let view = FragmentView::new(data, mime);
-        FragmentDocument::create(view, &identity, &self.pool)
-            .await
-            .map_err(Into::into)
+        Ok(FragmentDocument::create(view, &identity, &self.pool).await?)
     }
 
     /// generates a fresh ephemeral keypair and sets it as the current identity.
@@ -232,17 +247,14 @@ impl Intersect {
             return Err(IntersectError::AlreadyLoggedIn);
         }
         let keypair = with_crypto(|c| c.generate_keypair());
-        let public = AccountPublic::new(
+        let private = AccountPrivate::new(keypair.secret(), None);
+        let view = AccountView::new(
             keypair.key(),
             name.map(AccountName::new).transpose()?,
             bio.map(AccountBio::new).transpose()?,
             home,
+            Some(private),
         );
-        let private = AccountPrivate::new(keypair.secret(), None);
-        let view = AccountView {
-            public,
-            private: Some(private),
-        };
         let reference = AccountDocument::create(view, &keypair, &self.pool).await?;
         let secret = AccountSecret::new(keypair.secret());
         *self.identity.lock().unwrap() = Some(Identity::Account {
