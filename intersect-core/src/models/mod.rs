@@ -1,15 +1,24 @@
-pub mod account;
-pub use account::*;
-pub mod encrypted;
-pub use encrypted::*;
-pub mod fragment;
-pub use fragment::*;
-pub mod index;
-pub use index::*;
-pub mod trace;
-pub use trace::*;
-pub mod access;
-pub use access::*;
+mod account;
+mod access;
+mod encrypted;
+mod fragment;
+mod index;
+mod trace;
+
+// public types (re-exported from lib.rs)
+pub use account::{AccountBio, AccountName, AccountPrivate, AccountPublicKey, AccountSecret};
+pub use access::AccessError;
+pub use encrypted::EncryptionError;
+pub use fragment::{FragmentMime, FRAGMENT_SUBKEYS, MAX_CHUNK_BYTES, MAX_FRAGMENT_BYTES};
+pub use index::IndexName;
+pub use trace::{DocumentType, Trace, TraceSecret};
+
+// crate-internal types
+pub(crate) use account::AccountPublic;
+pub(crate) use access::{Access, ProtectedSecret};
+pub(crate) use encrypted::Encrypted;
+pub(crate) use fragment::{FragmentContent, FragmentHeader};
+pub(crate) use index::IndexHeader;
 
 use thiserror::Error;
 

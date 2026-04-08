@@ -25,7 +25,7 @@ pub struct Trace {
 }
 
 impl Trace {
-    pub fn new(document_type: DocumentType, record: &RecordKey, access: Access) -> Self {
+    pub(crate) fn new(document_type: DocumentType, record: &RecordKey, access: Access) -> Self {
         Self {
             document_type,
             record: record.clone(),
@@ -33,7 +33,7 @@ impl Trace {
         }
     }
 
-    pub fn unlocked(
+    pub(crate) fn unlocked(
         document_type: DocumentType,
         record: &RecordKey,
         secret: &SharedSecret,
@@ -41,11 +41,11 @@ impl Trace {
         Self::new(document_type, record, Access::new_unlocked(secret))
     }
 
-    pub fn locked(document_type: DocumentType, record: &RecordKey) -> Self {
+    pub(crate) fn locked(document_type: DocumentType, record: &RecordKey) -> Self {
         Self::new(document_type, record, Access::new_locked())
     }
 
-    pub fn protected(
+    pub(crate) fn protected(
         document_type: DocumentType,
         record: &RecordKey,
         secret: &SharedSecret,
@@ -59,11 +59,11 @@ impl Trace {
         &self.document_type
     }
 
-    pub fn record(&self) -> &RecordKey {
+    pub(crate) fn record(&self) -> &RecordKey {
         &self.record
     }
 
-    pub fn access(&self) -> &Access {
+    pub(crate) fn access(&self) -> &Access {
         &self.access
     }
 }
@@ -110,9 +110,43 @@ impl SerialisableV0 for Trace {
 }
 
 impl_v0_proto_conversions! {Trace}
-
-// string conversions
 impl_string_conversions! {Trace}
+
+/// opaque wrapper around a reference's symmetric encryption key.
+/// used to unlock locked traces where the secret is shared out-of-band.
+#[derive(Clone)]
+pub struct TraceSecret(SharedSecret);
+
+impl TraceSecret {
+    pub(crate) fn new(secret: SharedSecret) -> Self {
+        Self(secret)
+    }
+
+    pub(crate) fn inner(&self) -> &SharedSecret {
+        &self.0
+    }
+}
+
+impl SerialisableV0 for TraceSecret {
+    type Proto = proto::v0::intersect::TraceSecret;
+
+    fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
+        Ok(Self::Proto {
+            secret: Some((&self.0).into()),
+        })
+    }
+
+    fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
+        let secret = proto
+            .secret
+            .ok_or(DeserialisationError::MissingField("secret".to_owned()))?
+            .into();
+        Ok(Self(secret))
+    }
+}
+
+impl_v0_proto_conversions! {TraceSecret}
+impl_string_conversions! {TraceSecret}
 
 #[cfg(test)]
 mod tests {

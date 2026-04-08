@@ -18,11 +18,11 @@ impl Reference {
         Self { record, secret }
     }
 
-    pub fn record(&self) -> &RecordKey {
+    pub(crate) fn record(&self) -> &RecordKey {
         &self.record
     }
 
-    pub fn secret(&self) -> &SharedSecret {
+    pub(crate) fn secret(&self) -> &SharedSecret {
         &self.secret
     }
 }
@@ -32,7 +32,7 @@ impl Reference {
 // convert to/from Trace for serialising and sharing.
 #[derive(PartialEq, Debug, Eq)]
 pub struct TypedReference<D: Document> {
-    pub(crate) reference: Reference,
+    reference: Reference,
     _phantom: PhantomData<D>,
 }
 
@@ -55,7 +55,7 @@ impl<D: Document> TypedReference<D> {
         }
     }
 
-    pub fn reference(&self) -> &Reference {
+    pub(crate) fn reference(&self) -> &Reference {
         &self.reference
     }
 

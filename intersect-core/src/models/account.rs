@@ -8,7 +8,58 @@ use crate::{
         DeserialisationError, Deserialise, SerialisableV0, SerialisationError, Serialise,
         impl_string_conversions, impl_v0_proto_conversions,
     },
+    veilid::with_crypto,
 };
+
+/// the public half of an account's signing keypair.
+/// wrapper so we don't expose the raw veilid PublicKey type in our public API.
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct AccountPublicKey(PublicKey);
+
+impl AccountPublicKey {
+    pub(crate) fn new(key: PublicKey) -> Self {
+        Self(key)
+    }
+
+    pub(crate) fn inner(&self) -> &PublicKey {
+        &self.0
+    }
+
+    /// hashes the crypto kind + bare key bytes to produce a stable 128-bit fingerprint.
+    /// intended for display alongside usernames (which are not unique) to aid disambiguation.
+    pub fn fingerprint_bytes(&self) -> [u8; 16] {
+        let mut data = Vec::with_capacity(36);
+        data.extend_from_slice(self.0.kind().bytes()); // 4 bytes: crypto kind (domain separation)
+        data.extend_from_slice(&self.0.value()); // 32 bytes: bare public key
+        let hash = with_crypto(|c| c.generate_hash(&data));
+        hash.value()[..16].try_into().unwrap()
+    }
+
+    /// base58-encoded fingerprint for display
+    pub fn fingerprint(&self) -> String {
+        bs58::encode(self.fingerprint_bytes()).into_string()
+    }
+}
+
+impl SerialisableV0 for AccountPublicKey {
+    type Proto = proto::v0::intersect::AccountPublicKey;
+
+    fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
+        Ok(Self::Proto {
+            key: Some(proto::v0::veilid::PublicKey::from(&self.0)),
+        })
+    }
+
+    fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
+        let key = proto
+            .key
+            .ok_or(DeserialisationError::MissingField("key".to_owned()))?;
+        Ok(Self(key.into()))
+    }
+}
+
+impl_v0_proto_conversions! {AccountPublicKey}
+impl_string_conversions! {AccountPublicKey}
 
 const ACCOUNT_NAME_MAX_BYTES: usize = 64;
 
@@ -59,7 +110,7 @@ impl AsRef<str> for AccountBio {
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct AccountPublic {
-    public_key: PublicKey,
+    public_key: AccountPublicKey,
     name: Option<AccountName>,
     bio: Option<AccountBio>,
     home: Option<Trace>,
@@ -67,7 +118,7 @@ pub struct AccountPublic {
 
 impl AccountPublic {
     pub fn new(
-        public_key: PublicKey,
+        public_key: AccountPublicKey,
         name: Option<AccountName>,
         bio: Option<AccountBio>,
         home: Option<Trace>,
@@ -80,7 +131,7 @@ impl AccountPublic {
         }
     }
 
-    pub fn public_key(&self) -> &PublicKey {
+    pub fn public_key(&self) -> &AccountPublicKey {
         &self.public_key
     }
     pub fn name(&self) -> Option<&AccountName> {
@@ -109,7 +160,7 @@ impl SerialisableV0 for AccountPublic {
 
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         Ok(Self::Proto {
-            public_key: Some(proto::v0::veilid::PublicKey::from(self.public_key())),
+            public_key: Some(proto::v0::veilid::PublicKey::from(self.public_key.inner())),
             name: self.name().map(|n| n.as_ref().to_owned()),
             bio: self.bio().map(|b| b.as_ref().to_owned()),
             home: None, // TODO: implement home and add it here
@@ -117,10 +168,12 @@ impl SerialisableV0 for AccountPublic {
     }
 
     fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
-        let public_key: PublicKey = proto
-            .public_key
-            .ok_or(DeserialisationError::MissingField("public_key".to_owned()))?
-            .into();
+        let public_key = AccountPublicKey::new(
+            proto
+                .public_key
+                .ok_or(DeserialisationError::MissingField("public_key".to_owned()))?
+                .into(),
+        );
         let name = proto.name.map(AccountName::new).transpose()?;
         let bio = proto.bio.map(AccountBio::new).transpose()?;
         let home: Option<Trace> = proto.home.map(TryInto::try_into).transpose()?;
@@ -131,21 +184,15 @@ impl SerialisableV0 for AccountPublic {
 impl_v0_proto_conversions! {AccountPublic}
 
 #[derive(PartialEq, Eq, Debug, Clone)]
+// TODO: private account data is currently exposed as-is in AccountView.
+// ideally we'd either inline its fields directly into the view or gate access more carefully.
 pub struct AccountPrivate {
-    private_key: SecretKey,
     bookmarks: Option<Trace>,
 }
 
 impl AccountPrivate {
-    pub fn new(private_key: SecretKey, bookmarks: Option<Trace>) -> Self {
-        Self {
-            private_key,
-            bookmarks,
-        }
-    }
-
-    pub fn private_key(&self) -> &SecretKey {
-        &self.private_key
+    pub fn new(bookmarks: Option<Trace>) -> Self {
+        Self { bookmarks }
     }
 
     pub fn bookmarks(&self) -> Option<&Trace> {
@@ -158,18 +205,13 @@ impl SerialisableV0 for AccountPrivate {
 
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         Ok(Self::Proto {
-            private_key: Some(proto::v0::veilid::SecretKey::from(self.private_key())),
             bookmarks: self.bookmarks().map(TryInto::try_into).transpose()?,
         })
     }
 
     fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
-        let private_key: SecretKey = proto
-            .private_key
-            .ok_or(DeserialisationError::MissingField("private_key".to_owned()))?
-            .into();
         let bookmarks: Option<Trace> = proto.bookmarks.map(TryInto::try_into).transpose()?;
-        Ok(Self::new(private_key, bookmarks))
+        Ok(Self::new(bookmarks))
     }
 }
 
@@ -181,13 +223,11 @@ impl_v0_proto_conversions! {AccountPrivate}
 pub struct AccountSecret(SecretKey);
 
 impl AccountSecret {
-    pub fn new(secret: SecretKey) -> Self {
+    pub(crate) fn new(secret: SecretKey) -> Self {
         Self(secret)
     }
-}
 
-impl AsRef<SecretKey> for AccountSecret {
-    fn as_ref(&self) -> &SecretKey {
+    pub(crate) fn inner(&self) -> &SecretKey {
         &self.0
     }
 }

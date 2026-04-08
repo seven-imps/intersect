@@ -77,9 +77,8 @@ message FragmentContent { bytes data = 1; }
 message IndexHeader {
   // name for this "file"
   string name = 1;
-  // reference to the writer account
-  // optional, will be unset if created with an anonymous login
-  optional Trace account = 2;
+  // author's account record trace, unset for anonymous indexes
+  optional Trace author = 2;
   // content for this "file"
   optional Trace fragment = 3;
   // links to other indexes
@@ -126,12 +125,16 @@ message AccountPublic {
 }
 
 message AccountPrivate {
-  // contains the private key so we can grab the private key after logging in with the derived secret
-  veilid.SecretKey private_key = 1;
   // Links record of bookmarked traces
   optional Trace bookmarks = 2;
 }
 
+// wrapper around the veilid public key so our string format is decoupled from veilid's proto schema
+message AccountPublicKey { veilid.PublicKey key = 1; }
+
 // the "password" for an account, currently derived from the account record key and private key
 // though this could be changed later. it's mostly here so we can easily (de)serialise it
 message AccountSecret { veilid.SecretKey secret = 1; }
+
+// wrapper around a trace's symmetric encryption key.
+message TraceSecret { veilid.SharedSecret secret = 1; }

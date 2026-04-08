@@ -36,8 +36,8 @@ impl AsRef<str> for IndexName {
 pub struct IndexHeader {
     // user-readable name for the index, max 256 bytes
     name: IndexName,
-    // author's account (unset for anonymous created indexes)
-    account: Option<Trace>,
+    // author's account trace, unset for anonymous indexes
+    author: Option<Trace>,
     // reference to the content fragment, if any
     fragment: Option<Trace>,
     // reference to the links record, if any
@@ -47,13 +47,13 @@ pub struct IndexHeader {
 impl IndexHeader {
     pub fn new(
         name: IndexName,
-        account: Option<Trace>,
+        author: Option<Trace>,
         fragment: Option<Trace>,
         links: Option<Trace>,
     ) -> Self {
         Self {
             name,
-            account,
+            author,
             fragment,
             links,
         }
@@ -62,8 +62,8 @@ impl IndexHeader {
     pub fn name(&self) -> &IndexName {
         &self.name
     }
-    pub fn account(&self) -> Option<&Trace> {
-        self.account.as_ref()
+    pub fn author(&self) -> Option<&Trace> {
+        self.author.as_ref()
     }
     pub fn fragment(&self) -> Option<&Trace> {
         self.fragment.as_ref()
@@ -79,7 +79,7 @@ impl SerialisableV0 for IndexHeader {
     fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
         Ok(Self::Proto {
             name: self.name.as_ref().to_owned(),
-            account: self.account.as_ref().map(TryInto::try_into).transpose()?,
+            author: self.author.as_ref().map(TryInto::try_into).transpose()?,
             fragment: self.fragment.as_ref().map(TryInto::try_into).transpose()?,
             links: self.links.as_ref().map(TryInto::try_into).transpose()?,
         })
@@ -88,7 +88,7 @@ impl SerialisableV0 for IndexHeader {
     fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
         Ok(Self {
             name: IndexName::new(proto.name)?,
-            account: proto.account.map(TryInto::try_into).transpose()?,
+            author: proto.author.map(TryInto::try_into).transpose()?,
             fragment: proto.fragment.map(TryInto::try_into).transpose()?,
             links: proto.links.map(TryInto::try_into).transpose()?,
         })

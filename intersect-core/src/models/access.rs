@@ -17,17 +17,20 @@ pub enum Access {
 }
 
 impl Access {
-    pub fn new_locked() -> Self {
+    pub(crate) fn new_locked() -> Self {
         Self::Locked
     }
 
-    pub fn new_unlocked(secret: &SharedSecret) -> Self {
+    pub(crate) fn new_unlocked(secret: &SharedSecret) -> Self {
         Self::Unlocked {
             secret: secret.clone(),
         }
     }
 
-    pub fn new_protected(secret: &SharedSecret, password: &str) -> Result<Self, EncryptionError> {
+    pub(crate) fn new_protected(
+        secret: &SharedSecret,
+        password: &str,
+    ) -> Result<Self, EncryptionError> {
         let protected = ProtectedSecret::new(secret, password)?;
         Ok(Self::Protected {
             protected_secret: protected,

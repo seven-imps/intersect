@@ -38,17 +38,34 @@ impl FragmentView {
     }
 }
 
+impl std::fmt::Display for FragmentView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.mime.as_ref().starts_with("text/") {
+            // best-effort utf-8 decode for text fragments
+            write!(f, "{}", String::from_utf8_lossy(&self.data))
+        } else {
+            write!(
+                f,
+                "[{} file, {} bytes]",
+                self.mime.as_ref(),
+                self.data.len()
+            )
+        }
+    }
+}
+
 impl Document for FragmentDocument {
     const MAX_SUBKEYS: u16 = FRAGMENT_SUBKEYS;
     const DOCUMENT_TYPE: DocumentType = DocumentType::Fragment;
     type View = FragmentView;
 
     async fn read(
-        reference: &Reference,
+        typed_ref: &TypedReference<FragmentDocument>,
         _identity: Option<&KeyPair>,
         _force: bool,
         pool: &RecordPool,
     ) -> Result<FragmentView, DocumentError> {
+        let reference = typed_ref.reference();
         // fragments are immutable, so force can safely be ignored since local cache can never go stale
         let header: FragmentHeader = pool
             .read(reference, 0, false)

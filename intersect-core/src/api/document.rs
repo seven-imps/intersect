@@ -7,13 +7,14 @@ use std::fmt::Debug;
 use tokio::sync::watch;
 use veilid_core::KeyPair;
 
-use crate::{
-    api::{Reference, TypedReference},
-    models::DocumentType,
-    veilid::RecordPool,
-};
+use crate::{api::TypedReference, models::DocumentType, veilid::RecordPool};
 
-pub trait Document: Sized {
+// TODO: consider sealing this trait to hide read/create/update from the public api entirely. (along with the MutableDocument one)
+// currently they're hidden from docs but still technically pub.
+// sealing would require splitting into a pub(crate) supertrait (DocumentImpl) that holds these methods,
+// with Document: DocumentImpl as the bound, preventing external implementation and removes the methods from docs naturally.
+// it would be a little more verbose at the impl sites, but ultimately cleaner about intent
+pub trait Document: Sized + Send + Sync + 'static {
     /// number of subkeys on the root record. affects max subkey size.
     const MAX_SUBKEYS: u16;
 
@@ -27,8 +28,9 @@ pub trait Document: Sized {
     ///  if `force` is true, `read` should guarantee the most recent network version is returned
     /// for mutable documents that means a force_refresh should be done when reading subkeys,
     /// immutable records are always guaranteed to be fresh, so force can be ignored.
+    #[doc(hidden)]
     fn read<'a>(
-        reference: &'a Reference,
+        typed_ref: &'a TypedReference<Self>,
         identity: Option<&'a KeyPair>,
         force: bool,
         pool: &'a RecordPool,
@@ -36,6 +38,7 @@ pub trait Document: Sized {
     ) -> impl Future<Output = Result<Self::View, DocumentError>> + Send + 'a;
 
     // create takes an owned view to avoid unnnecessary cloning
+    #[doc(hidden)]
     fn create(
         view: Self::View,
         identity: &KeyPair,
@@ -51,6 +54,7 @@ pub trait MutableDocument: Document {
     // all changes inside of a veilid transaction instead.
     // that way we also avoid the potential issues of doing mutiple updates
     // in parallel and overwriting each other.
+    #[doc(hidden)]
     fn update(
         update: Self::Update,
         document: &OpenDocument<Self>,

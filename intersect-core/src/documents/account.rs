@@ -1,4 +1,4 @@
-use veilid_core::{KeyPair, PublicKey, SharedSecret};
+use veilid_core::{KeyPair, SharedSecret};
 
 use crate::{
     api::{
@@ -6,7 +6,8 @@ use crate::{
         TypedReference,
     },
     models::{
-        AccountBio, AccountName, AccountPrivate, AccountPublic, DocumentType, Encrypted, Trace,
+        AccountBio, AccountName, AccountPrivate, AccountPublic, AccountPublicKey, DocumentType,
+        Encrypted, Trace,
     },
     veilid::{RecordError, RecordPool, with_crypto},
 };
@@ -28,7 +29,7 @@ pub struct AccountDocument;
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct AccountView {
-    public_key: PublicKey,
+    public_key: AccountPublicKey,
     name: Option<AccountName>,
     bio: Option<AccountBio>,
     home: Option<Trace>,
@@ -37,8 +38,8 @@ pub struct AccountView {
 }
 
 impl AccountView {
-    pub fn new(
-        public_key: PublicKey,
+    pub(crate) fn new(
+        public_key: AccountPublicKey,
         name: Option<AccountName>,
         bio: Option<AccountBio>,
         home: Option<Trace>,
@@ -53,7 +54,7 @@ impl AccountView {
         }
     }
 
-    pub fn public_key(&self) -> &veilid_core::PublicKey {
+    pub fn public_key(&self) -> &AccountPublicKey {
         &self.public_key
     }
     pub fn name(&self) -> Option<&AccountName> {
@@ -67,6 +68,31 @@ impl AccountView {
     }
     pub fn private(&self) -> Option<&AccountPrivate> {
         self.private.as_ref()
+    }
+}
+
+impl std::fmt::Display for AccountView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // name + fingerprint on the first line
+        let name = self
+            .name
+            .as_ref()
+            .map(|n| n.as_ref().to_owned())
+            .unwrap_or_else(|| "(anonymous)".to_owned());
+        writeln!(f, "# {} ({})", name, self.public_key.fingerprint())?;
+
+        if let Some(home) = &self.home {
+            writeln!(f, "home: {}", home)?;
+        }
+        if let Some(private) = &self.private
+            && let Some(bookmarks) = private.bookmarks()
+        {
+            writeln!(f, "bookmarks: {}", bookmarks)?;
+        }
+        if let Some(bio) = &self.bio {
+            writeln!(f, "{}", bio.as_ref())?;
+        }
+        Ok(())
     }
 }
 
@@ -84,17 +110,18 @@ impl Document for AccountDocument {
     type View = AccountView;
 
     async fn read(
-        reference: &Reference,
+        typed_ref: &TypedReference<AccountDocument>,
         identity: Option<&KeyPair>,
         force: bool,
         pool: &RecordPool,
     ) -> Result<AccountView, DocumentError> {
+        let reference = &typed_ref.reference();
         let public: AccountPublic = pool
             .read(reference, 0, force)
             .await?
             .decrypt(reference.secret())?;
 
-        let owner = identity.filter(|id| id.key() == *public.public_key());
+        let owner = identity.filter(|id| &id.key() == public.public_key().inner());
         let private = match owner {
             None => None,
             Some(id) => match pool.read(reference, 1, force).await {
@@ -135,14 +162,14 @@ impl Document for AccountDocument {
             private,
         } = view;
         let private = private.ok_or(DocumentError::NotAuthorised)?;
-        if public_key != identity.key() || private.private_key() != &identity.secret() {
+        if public_key.inner() != &identity.key() {
             return Err(DocumentError::NotAuthorised);
         }
 
         let record = pool.create(identity, Self::MAX_SUBKEYS).await?;
         let reference = record.reference().clone();
 
-        let public = AccountPublic::new(public_key, name, bio, home);
+        let public = AccountPublic::new(public_key.clone(), name, bio, home);
         let public_encrypted = Encrypted::encrypt(&public, reference.secret())?;
         pool.write(&reference, 0, &public_encrypted, identity)
             .await?;

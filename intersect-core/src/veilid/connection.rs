@@ -8,8 +8,7 @@ use veilid_core::{
 };
 
 use crate::veilid::{
-    NetworkWatcher, is_attached,
-    updates::{HandlerChain, UpdateDispatch, UpdateHandler, UpdateLogger},
+    HandlerChain, NetworkWatcher, UpdateDispatch, UpdateHandler, UpdateLogger, is_attached,
 };
 
 pub const CRYPTO_KIND: CryptoKind = veilid_core::CRYPTO_KIND_VLD0;
@@ -36,7 +35,7 @@ static VEILID: OnceLock<VeilidAPI> = OnceLock::new();
 /// `VEILID` is a process-wide singleton set on first `Connection::init`. this avoids threading
 /// a `VeilidAPI` handle through every crypto call site, but it means calling `with_crypto`
 /// after `Connection::close` (which calls `veilid.shutdown()`) will panic.
-pub fn with_crypto<T, F>(f: F) -> T
+pub(crate) fn with_crypto<T, F>(f: F) -> T
 where
     F: Fn(CryptoSystemGuard<'_>) -> T,
 {
@@ -57,7 +56,7 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub async fn init(params: ConnectionParams) -> Result<Self, ConnectionError> {
+    pub(crate) async fn init(params: ConnectionParams) -> Result<Self, ConnectionError> {
         // setup_logging();
         // set up the veilid event handler chain
         let update_handlers = Arc::new(Mutex::new(HandlerChain::new()));
@@ -89,7 +88,7 @@ impl Connection {
 
     /// start connecting to the network.
     /// separated from init so we can initialise veilid without the network for tests and such.
-    pub async fn attach(&self) -> Result<(), ConnectionError> {
+    pub(crate) async fn attach(&self) -> Result<(), ConnectionError> {
         self.veilid
             .attach()
             .await
@@ -125,26 +124,26 @@ impl Connection {
     }
 
     /// Closes the connection and cleans up resources.
-    pub async fn close(self) -> () {
+    pub(crate) async fn close(self) -> () {
         self.veilid.shutdown().await;
     }
 
-    pub fn add_update_handler(&self, handler: Box<dyn UpdateHandler + Send + Sync>) {
+    pub(crate) fn add_update_handler(&self, handler: Box<dyn UpdateHandler + Send + Sync>) {
         self.update_handlers.lock().unwrap().add(handler);
     }
 
     /// returns a receiver for veilid attachment state changes
-    pub fn attachment_state(&self) -> watch::Receiver<VeilidStateAttachment> {
+    pub(crate) fn attachment_state(&self) -> watch::Receiver<VeilidStateAttachment> {
         self.network_watcher.subscribe_attachment()
     }
 
     /// returns a receiver for veilid network state changes
-    pub fn network_state(&self) -> watch::Receiver<VeilidStateNetwork> {
+    pub(crate) fn network_state(&self) -> watch::Receiver<VeilidStateNetwork> {
         self.network_watcher.subscribe_network()
     }
 
     /// blocks until the node is attached and ready for public internet use
-    pub async fn wait_for_attachment(&self) {
+    pub(crate) async fn wait_for_attachment(&self) {
         self.network_watcher
             .subscribe_attachment()
             .wait_for(is_attached)
@@ -154,13 +153,13 @@ impl Connection {
 
     /// Gets the underlying Veilid routing context.
     /// Returns an error if the connection has already been shut down or hasn't started yet.
-    pub fn routing_context(&self) -> Result<veilid_core::RoutingContext, ConnectionError> {
+    pub(crate) fn routing_context(&self) -> Result<veilid_core::RoutingContext, ConnectionError> {
         self.veilid
             .routing_context()
             .map_err(|_| ConnectionError::NoRoutingContext)
     }
 
-    pub fn generate_member_id(&self, key: &PublicKey) -> veilid_core::MemberId {
+    pub(crate) fn generate_member_id(&self, key: &PublicKey) -> veilid_core::MemberId {
         self.veilid.generate_member_id(key).unwrap()
     }
 }

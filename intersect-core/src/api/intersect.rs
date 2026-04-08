@@ -12,8 +12,8 @@ use crate::{
         AccountDocument, AccountView, FragmentDocument, FragmentView, IndexDocument, IndexView,
     },
     models::{
-        AccountBio, AccountName, AccountPrivate, AccountSecret, EncryptionError, FragmentMime,
-        IndexName, Trace, ValidationError,
+        AccountBio, AccountName, AccountPrivate, AccountPublicKey, AccountSecret, EncryptionError,
+        FragmentMime, IndexName, Trace, ValidationError,
     },
     serialisation::{DeserialisationError, SerialisationError},
     veilid::{
@@ -78,35 +78,27 @@ impl Intersect {
         self.connection.close().await;
     }
 
-    /// two-pass login: reads public key from the account record, reconstructs the keypair,
-    /// then verifies the stored private key matches before setting identity.
+    /// reads the public key from the account record,
+    /// reconstructs the keypair from the provided secret,
+    /// and validates it before setting identity.
     pub async fn login(
         &self,
         account: TypedReference<AccountDocument>,
         secret: AccountSecret,
     ) -> Result<(), IntersectError> {
-        let reference = &account.reference;
-
         // public key can't be derived from the reference alone, so read it from the record first
-        let public_view = AccountDocument::read(reference, None, true, &self.pool).await?;
-        let public_key = public_view.public_key().clone();
+        let view = AccountDocument::read(&account, None, true, &self.pool).await?;
+        let public_key = view.public_key().clone();
 
         // reconstruct and validate the keypair
         guard!(
-            secret.as_ref().kind() == public_key.kind(),
+            secret.inner().kind() == public_key.inner().kind(),
             Err(IntersectError::InvalidLogin)
         );
-        let keypair = KeyPair::new_from_parts(public_key, secret.as_ref().value());
+        let keypair = KeyPair::new_from_parts(public_key.inner().clone(), secret.inner().value());
         let is_valid = with_crypto(|c| c.validate_keypair(&keypair.key(), &keypair.secret()))
             .map_err(|_| IntersectError::InvalidLogin)?;
         if !is_valid {
-            return Err(IntersectError::InvalidLogin);
-        }
-
-        // second pass: read with identity to verify stored private key matches
-        let full_view = AccountDocument::read(reference, Some(&keypair), false, &self.pool).await?;
-        let private = full_view.private().ok_or(IntersectError::InvalidLogin)?;
-        if private.private_key() != &keypair.secret() {
             return Err(IntersectError::InvalidLogin);
         }
 
@@ -142,7 +134,7 @@ impl Intersect {
     ) -> Result<D::View, IntersectError> {
         let identity = self.identity();
         // always force — immutable implementations ignore this and use cache internally anyway
-        D::read(&typed_ref.reference, identity.as_ref(), true, &self.pool)
+        D::read(typed_ref, identity.as_ref(), true, &self.pool)
             .await
             .map_err(Into::into)
     }
@@ -154,12 +146,14 @@ impl Intersect {
         &self,
         typed_ref: &TypedReference<D>,
     ) -> Result<OpenDocument<D>, IntersectError> {
-        let reference = &typed_ref.reference;
         let identity = self.identity();
 
         // if a coordinator is already running for this record, subscribe for free
         // the receiver starts with the latest cached view, no read needed
-        if let Some(updates) = self.coordinators.try_subscribe::<D>(reference.record()) {
+        if let Some(updates) = self
+            .coordinators
+            .try_subscribe::<D>(typed_ref.reference().record())
+        {
             return Ok(OpenDocument {
                 reference: typed_ref.clone(),
                 updates,
@@ -167,12 +161,14 @@ impl Intersect {
         }
 
         // first open for this record. do the initial read, then create the coordinator
-        let initial = D::read(reference, identity.as_ref(), false, &self.pool).await?;
-        self.pool.watch(reference).await?;
-        let notify_rx = self.watch_router.subscribe(reference.record().clone());
+        let initial = D::read(typed_ref, identity.as_ref(), false, &self.pool).await?;
+        self.pool.watch(typed_ref.reference()).await?;
+        let notify_rx = self
+            .watch_router
+            .subscribe(typed_ref.reference().record().clone());
 
         let updates = self.coordinators.create::<D>(
-            reference.clone(),
+            typed_ref.clone(),
             initial,
             Arc::clone(&self.pool),
             identity,
@@ -207,8 +203,8 @@ impl Intersect {
     ) -> Result<TypedReference<IndexDocument>, IntersectError> {
         let identity = self.identity().ok_or(IntersectError::InvalidLogin)?;
         // convert the account reference to an unlocked trace so the reader can follow it
-        let account = self.account().map(|r| r.to_unlocked_trace());
-        let view = IndexView::new(IndexName::new(name)?, account, fragment, links);
+        let author = self.account().map(|r| r.to_unlocked_trace());
+        let view = IndexView::new(IndexName::new(name)?, author, fragment, links);
         Ok(IndexDocument::create(view, &identity, &self.pool).await?)
     }
 
@@ -247,9 +243,9 @@ impl Intersect {
             return Err(IntersectError::AlreadyLoggedIn);
         }
         let keypair = with_crypto(|c| c.generate_keypair());
-        let private = AccountPrivate::new(keypair.secret(), None);
+        let private = AccountPrivate::new(None);
         let view = AccountView::new(
-            keypair.key(),
+            AccountPublicKey::new(keypair.key()),
             name.map(AccountName::new).transpose()?,
             bio.map(AccountBio::new).transpose()?,
             home,

@@ -110,10 +110,6 @@ impl HandlerChain {
     pub fn add(&mut self, handler: Box<dyn UpdateHandler + Send + Sync>) {
         self.handlers.push(handler);
     }
-
-    pub fn add_many(&mut self, handlers: Vec<Box<dyn UpdateHandler + Send + Sync>>) {
-        self.handlers.extend(handlers);
-    }
 }
 
 impl UpdateHandler for HandlerChain {

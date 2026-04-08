@@ -146,10 +146,6 @@ impl FragmentContent {
         Self(data)
     }
 
-    pub fn data(&self) -> &[u8] {
-        &self.0
-    }
-
     pub fn into_data(self) -> Vec<u8> {
         self.0
     }

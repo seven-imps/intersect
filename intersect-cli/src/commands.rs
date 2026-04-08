@@ -1,10 +1,12 @@
-use std::str::FromStr;
-use std::sync::{mpsc::SyncSender, Arc, Mutex, OnceLock};
+use std::{
+    str::FromStr,
+    sync::{mpsc::SyncSender, Arc, Mutex, OnceLock},
+};
 
 use anyhow::{anyhow, Context};
 use arboard::Clipboard;
 
-use intersect_core::*;
+use intersect_core::{documents::*, models::*, *};
 
 use crate::{
     cli::{Cli, Commands, CreateCommands},
@@ -197,40 +199,37 @@ async fn cmd_fetch(
         DocumentType::Fragment => {
             let r = unlock_trace(trace.open::<FragmentDocument>()?, prompt).await?;
             let view = intersect.fetch(&r).await?;
-            // TODO: implement Display for FragmentView
             match output {
                 Some(path) => {
                     std::fs::write(&path, view.data())
                         .with_context(|| format!("failed to write {}", path.display()))?;
                     tx.line(format!("written to {}", path.display()));
                 }
-                None => tx.line(format!("{view:#?}")),
+                None => tx.line(format!("{view}")),
             }
         }
         DocumentType::Account => {
             let r = unlock_trace(trace.open::<AccountDocument>()?, prompt).await?;
             let view = intersect.fetch(&r).await?;
-            // TODO: implement Display for AccountView
             match output {
                 Some(path) => {
-                    std::fs::write(&path, format!("{view:#?}"))
+                    std::fs::write(&path, format!("{view}"))
                         .with_context(|| format!("failed to write {}", path.display()))?;
                     tx.line(format!("written to {}", path.display()));
                 }
-                None => tx.line(format!("{view:#?}")),
+                None => tx.line(format!("{view}")),
             }
         }
         DocumentType::Index => {
             let r = unlock_trace(trace.open::<IndexDocument>()?, prompt).await?;
             let view = intersect.fetch(&r).await?;
-            // TODO: implement Display for IndexView
             match output {
                 Some(path) => {
-                    std::fs::write(&path, format!("{view:#?}"))
+                    std::fs::write(&path, format!("{view}"))
                         .with_context(|| format!("failed to write {}", path.display()))?;
                     tx.line(format!("written to {}", path.display()));
                 }
-                None => tx.line(format!("{view:#?}")),
+                None => tx.line(format!("{view}")),
             }
         }
         DocumentType::Links => return Err(anyhow!("links documents are not yet supported")),
@@ -255,8 +254,7 @@ async fn cmd_open(
                 .as_ref()
                 .map_err(|e| anyhow!("{e}"))?
                 .clone();
-            // TODO: implement Display for AccountView
-            tx.line(format!("{view:#?}"));
+            tx.line(format!("{view}"));
         }
         DocumentType::Index => {
             let r = unlock_trace(trace.open::<IndexDocument>()?, prompt).await?;
@@ -267,8 +265,7 @@ async fn cmd_open(
                 .as_ref()
                 .map_err(|e| anyhow!("{e}"))?
                 .clone();
-            // TODO: implement Display for IndexView
-            tx.line(format!("{view:#?}"));
+            tx.line(format!("{view}"));
         }
         DocumentType::Fragment => {
             return Err(anyhow!("fragments are immutable, use fetch instead"))

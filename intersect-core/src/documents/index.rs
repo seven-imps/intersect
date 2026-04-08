@@ -1,10 +1,7 @@
 use veilid_core::KeyPair;
 
 use crate::{
-    api::{
-        Document, DocumentError, LARGE_SUBKEYS, MutableDocument, OpenDocument, Reference,
-        TypedReference,
-    },
+    api::{Document, DocumentError, LARGE_SUBKEYS, MutableDocument, OpenDocument, TypedReference},
     models::{DocumentType, Encrypted, IndexHeader, IndexName, Trace},
     veilid::RecordPool,
 };
@@ -15,8 +12,8 @@ pub struct IndexDocument;
 pub struct IndexView {
     // user-readable name for the index, max 256 bytes
     name: IndexName,
-    // author's account (unset for anonymous created indexes)
-    account: Option<Trace>,
+    // author's account trace, unset for anonymous indexes
+    author: Option<Trace>,
     // reference to the content fragment, if any
     fragment: Option<Trace>,
     // reference to the links record, if any
@@ -26,13 +23,13 @@ pub struct IndexView {
 impl IndexView {
     pub fn new(
         name: IndexName,
-        account: Option<Trace>,
+        author: Option<Trace>,
         fragment: Option<Trace>,
         links: Option<Trace>,
     ) -> Self {
         Self {
             name,
-            account,
+            author,
             fragment,
             links,
         }
@@ -41,8 +38,8 @@ impl IndexView {
     pub fn name(&self) -> &IndexName {
         &self.name
     }
-    pub fn account(&self) -> Option<&Trace> {
-        self.account.as_ref()
+    pub fn author(&self) -> Option<&Trace> {
+        self.author.as_ref()
     }
     pub fn fragment(&self) -> Option<&Trace> {
         self.fragment.as_ref()
@@ -62,6 +59,22 @@ impl IndexView {
     }
 }
 
+impl std::fmt::Display for IndexView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "# {}", self.name.as_ref())?;
+        if let Some(author) = &self.author {
+            writeln!(f, "author: {}", author)?;
+        }
+        if let Some(fragment) = &self.fragment {
+            writeln!(f, "fragment: {}", fragment)?;
+        }
+        if let Some(links) = &self.links {
+            writeln!(f, "links: {}", links)?;
+        }
+        Ok(())
+    }
+}
+
 pub enum IndexUpdate {
     Name(IndexName),
     Fragment(Option<Trace>),
@@ -74,11 +87,12 @@ impl Document for IndexDocument {
     type View = IndexView;
 
     async fn read(
-        reference: &Reference,
+        typed_ref: &TypedReference<IndexDocument>,
         _identity: Option<&KeyPair>,
         force: bool,
         pool: &RecordPool,
     ) -> Result<IndexView, DocumentError> {
+        let reference = typed_ref.reference();
         let header: IndexHeader = pool
             .read(reference, 0, force)
             .await?
@@ -86,7 +100,7 @@ impl Document for IndexDocument {
 
         Ok(IndexView {
             name: header.name().clone(),
-            account: header.account().cloned(),
+            author: header.author().cloned(),
             fragment: header.fragment().cloned(),
             links: header.links().cloned(),
         })
@@ -100,7 +114,7 @@ impl Document for IndexDocument {
         let record = pool.create(identity, Self::MAX_SUBKEYS).await?;
         let reference = record.reference().clone();
 
-        let header = IndexHeader::new(view.name, view.account, view.fragment, view.links);
+        let header = IndexHeader::new(view.name, view.author, view.fragment, view.links);
         let encrypted = Encrypted::encrypt(&header, reference.secret())?;
         pool.write(&reference, 0, &encrypted, identity).await?;
 
@@ -127,7 +141,7 @@ impl MutableDocument for IndexDocument {
         };
         let header = IndexHeader::new(
             updated.name,
-            updated.account,
+            updated.author,
             updated.fragment,
             updated.links,
         );

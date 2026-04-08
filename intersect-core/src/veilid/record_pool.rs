@@ -26,15 +26,15 @@ pub struct OpenRecord {
 }
 
 impl OpenRecord {
-    pub fn descriptor(&self) -> &DHTRecordDescriptor {
+    pub(crate) fn descriptor(&self) -> &DHTRecordDescriptor {
         &self.descriptor
     }
 
-    pub fn reference(&self) -> &Reference {
+    pub(crate) fn reference(&self) -> &Reference {
         &self.reference
     }
 
-    pub fn key(&self) -> RecordKey {
+    pub(crate) fn key(&self) -> RecordKey {
         self.descriptor.key()
     }
 }
@@ -48,7 +48,7 @@ pub struct RecordPool {
 }
 
 impl RecordPool {
-    pub fn new(connection: Connection) -> Arc<Self> {
+    pub(crate) fn new(connection: Connection) -> Arc<Self> {
         let (pending_sync_tx, _) = watch::channel(PendingSync::default());
         let pool = Arc::new(Self {
             open_records: Mutex::new(HashMap::new()),
@@ -96,7 +96,10 @@ impl RecordPool {
         self.pending_sync_tx.subscribe()
     }
 
-    pub async fn get_or_open(&self, reference: &Reference) -> Result<OpenRecord, RecordError> {
+    pub(crate) async fn get_or_open(
+        &self,
+        reference: &Reference,
+    ) -> Result<OpenRecord, RecordError> {
         // fast path: already open
         if let Some(record) = self.open_records.lock().unwrap().get(reference.record()) {
             return Ok(record.clone());
@@ -127,7 +130,7 @@ impl RecordPool {
             .clone())
     }
 
-    pub async fn create(
+    pub(crate) async fn create(
         &self,
         identity: &KeyPair,
         num_subkeys: u16,
@@ -164,7 +167,7 @@ impl RecordPool {
         Ok(record)
     }
 
-    pub async fn read_raw(
+    pub(crate) async fn read_raw(
         &self,
         reference: &Reference,
         subkey: u32,
@@ -178,13 +181,17 @@ impl RecordPool {
             .await
             .map_err(|e| RecordError::ReadError(e.to_string()))?
             .ok_or(RecordError::SubkeyEmpty(subkey))?;
-        debug!("read from record with key {}", record.descriptor.key());
+        debug!(
+            "read from record with key {} and subkey {}",
+            record.descriptor.key(),
+            subkey
+        );
         Ok(data.data().to_vec())
     }
 
     /// read a subkey on a given record
     /// if `force` is true, will force a network refresh, bypassing local cache
-    pub async fn read(
+    pub(crate) async fn read(
         &self,
         reference: &Reference,
         subkey: u32,
@@ -195,7 +202,7 @@ impl RecordPool {
         Ok(encrypted)
     }
 
-    pub async fn write_raw(
+    pub(crate) async fn write_raw(
         &self,
         reference: &Reference,
         subkey: u32,
@@ -220,7 +227,7 @@ impl RecordPool {
         Ok(())
     }
 
-    pub async fn watch(&self, reference: &Reference) -> Result<(), RecordError> {
+    pub(crate) async fn watch(&self, reference: &Reference) -> Result<(), RecordError> {
         let record = self.get_or_open(reference).await?;
         self.connection
             .routing_context()?
@@ -230,7 +237,7 @@ impl RecordPool {
         Ok(())
     }
 
-    pub async fn cancel_watch(&self, reference: &Reference) -> Result<(), RecordError> {
+    pub(crate) async fn cancel_watch(&self, reference: &Reference) -> Result<(), RecordError> {
         let record = self.get_or_open(reference).await?;
         self.connection
             .routing_context()?
@@ -240,7 +247,7 @@ impl RecordPool {
         Ok(())
     }
 
-    pub async fn write(
+    pub(crate) async fn write(
         &self,
         reference: &Reference,
         subkey: u32,
@@ -252,14 +259,14 @@ impl RecordPool {
     }
 
     /// waits until all offline subkeys across all open records have been flushed to the network.
-    pub async fn wait_for_all_pending(&self) {
+    pub(crate) async fn wait_for_all_pending(&self) {
         let mut rx = self.pending_sync_tx.subscribe();
         // wait_for checks the current value first, so no race if already synced
         let _ = rx.wait_for(|p| p.subkeys == 0).await;
     }
 
     /// waits until all pending subkeys on a record have been flushed to the network.
-    pub async fn wait_for_pending(&self, reference: &Reference) -> Result<(), RecordError> {
+    pub(crate) async fn wait_for_pending(&self, reference: &Reference) -> Result<(), RecordError> {
         let record = self.get_or_open(reference).await?;
         loop {
             let report = self

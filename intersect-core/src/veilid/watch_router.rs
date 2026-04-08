@@ -9,7 +9,7 @@ use veilid_core::{KeyPair, RecordKey, VeilidValueChange};
 use veilid_tools::spawn_detached;
 
 use crate::{
-    api::{Document, DocumentError, Reference},
+    api::{Document, DocumentError, TypedReference},
     veilid::{RecordPool, updates::UpdateHandler},
 };
 
@@ -36,7 +36,7 @@ impl WatchRouter {
 
     // subscribe to change notifications for a record.
     // creates the entry if this is the first subscriber.
-    pub fn subscribe(&self, key: RecordKey) -> watch::Receiver<()> {
+    pub(crate) fn subscribe(&self, key: RecordKey) -> watch::Receiver<()> {
         let mut routes = self.routes.lock().unwrap();
         match routes.get(&key) {
             Some(tx) => tx.subscribe(),
@@ -53,7 +53,7 @@ impl WatchRouter {
     // prevents a concurrent open() from inserting a new subscriber between the two.
     // TODO: there is still a narrow race between this returning true and the caller invoking pool.cancel_watch
     // a concurrent open() that called pool.watch() before this point will have its DHT watch silently cancelled
-    pub fn deregister_if_empty(&self, key: &RecordKey) -> bool {
+    pub(crate) fn deregister_if_empty(&self, key: &RecordKey) -> bool {
         let mut routes = self.routes.lock().unwrap();
         match routes.get(key) {
             Some(tx) if tx.receiver_count() == 0 => {
@@ -121,7 +121,7 @@ impl WatchCoordinators {
     // if another open() raced us and already created one, subscribes to that instead.
     pub fn create<D: Document>(
         &self,
-        reference: Reference,
+        typed_ref: TypedReference<D>,
         initial: D::View,
         pool: Arc<RecordPool>,
         identity: Option<KeyPair>,
@@ -132,7 +132,7 @@ impl WatchCoordinators {
 
         // double-check: another open() may have raced us during the async initial read
         if let Some(s) = map
-            .get(&(reference.record().clone(), type_name::<D>()))
+            .get(&(typed_ref.reference().record().clone(), type_name::<D>()))
             .and_then(|b| b.downcast_ref::<CoordinatorSender<D>>())
         {
             return s.subscribe();
@@ -141,14 +141,14 @@ impl WatchCoordinators {
         let (tx, rx) = watch::channel(Ok(initial));
         let sender: CoordinatorSender<D> = Arc::new(tx);
         map.insert(
-            (reference.record().clone(), type_name::<D>()),
+            (typed_ref.reference().record().clone(), type_name::<D>()),
             Box::new(Arc::clone(&sender)),
         );
         drop(map); // drop the lock
 
         let inner = Arc::clone(&self.inner);
         spawn_detached("intersect-coordinator", async move {
-            coordinator_task::<D>(reference, pool, identity, notify_rx, sender, router, inner)
+            coordinator_task::<D>(typed_ref, pool, identity, notify_rx, sender, router, inner)
                 .await;
         });
 
@@ -157,7 +157,7 @@ impl WatchCoordinators {
 }
 
 async fn coordinator_task<D: Document>(
-    reference: Reference,
+    typed_ref: TypedReference<D>,
     pool: Arc<RecordPool>,
     identity: Option<KeyPair>,
     mut notify_rx: watch::Receiver<()>,
@@ -174,7 +174,7 @@ async fn coordinator_task<D: Document>(
         }
 
         // notification triggers re-read of the document
-        match D::read(&reference, identity.as_ref(), false, &pool).await {
+        match D::read(&typed_ref, identity.as_ref(), false, &pool).await {
             Ok(new_view) => {
                 if Some(&new_view) != last_view.as_ref() {
                     last_view = Some(new_view.clone());
@@ -200,10 +200,10 @@ async fn coordinator_task<D: Document>(
     coordinators
         .lock()
         .unwrap()
-        .remove(&(reference.record().clone(), type_name::<D>()));
+        .remove(&(typed_ref.reference().record().clone(), type_name::<D>()));
 
     drop(notify_rx); // make sure to decrement listeners before we check if empty
-    if router.deregister_if_empty(reference.record()) {
-        let _ = pool.cancel_watch(&reference).await;
+    if router.deregister_if_empty(typed_ref.reference().record()) {
+        let _ = pool.cancel_watch(&typed_ref.reference()).await;
     }
 }

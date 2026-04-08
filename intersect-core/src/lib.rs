@@ -1,21 +1,22 @@
 #![recursion_limit = "256"]
 
 // internal modules
+mod api;
 mod proto;
 mod serialisation;
 mod veilid;
 
 // public modules
-
-// re-export the public API so users can just import intersect_core::* if their heart so desires
-mod api;
-pub use api::*;
-mod documents;
-pub use documents::*;
+pub mod documents;
 pub mod models;
-pub use models::*;
 
-// and also re-export anything from the internal modules that's used in the public api
+// re-export core api types directly
+pub use api::{
+    Document, Intersect, IntersectError, LockedTypedReference, MutableDocument, OpenDocument,
+    OpenedTrace, ProtectedTypedReference, TypedReference, WrongDocumentType,
+};
+
+// along with the network / connection setup types from veilid
 pub use veilid::{ConnectionParams, ConnectionStrength, NetworkState};
 
 /// platform agnostic logger

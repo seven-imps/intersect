@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use veilid_core::{RecordKey, SharedSecret};
+use veilid_core::RecordKey;
 
 use crate::{
     api::{Document, Reference, TypedReference},
-    models::{Access, AccessError, ProtectedSecret, Trace},
+    models::{Access, AccessError, ProtectedSecret, Trace, TraceSecret},
 };
 
 // result of opening a trace, to provide an easier surface for getting from a Trace to a usabler TypedReference
@@ -21,8 +21,8 @@ pub struct LockedTypedReference<D: Document> {
 }
 
 impl<D: Document> LockedTypedReference<D> {
-    pub fn unlock(self, secret: SharedSecret) -> Result<TypedReference<D>, AccessError> {
-        Ok(TypedReference::new(Reference::new(self.record, secret)))
+    pub fn unlock(self, secret: TraceSecret) -> Result<TypedReference<D>, AccessError> {
+        Ok(TypedReference::new(Reference::new(self.record, secret.inner().clone())))
     }
 }
 
