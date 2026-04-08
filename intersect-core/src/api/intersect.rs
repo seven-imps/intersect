@@ -133,7 +133,7 @@ impl Intersect {
         typed_ref: &TypedReference<D>,
     ) -> Result<D::View, IntersectError> {
         let identity = self.identity();
-        // always force — immutable implementations ignore this and use cache internally anyway
+        // always force. immutable implementations ignore this and use cache internally anyway
         D::read(typed_ref, identity.as_ref(), true, &self.pool)
             .await
             .map_err(Into::into)

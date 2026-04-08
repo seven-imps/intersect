@@ -19,7 +19,7 @@ use std::sync::{atomic::Ordering, Arc, Mutex, OnceLock};
 
 static SPEED_FMT: OnceLock<numfmt::Formatter> = OnceLock::new();
 
-// draws its child as if it always has focus — keeps the cursor visible
+// draws its child as if it always has focus, keeps the cursor visible
 // even when a scroll panel temporarily takes focus
 struct AlwaysFocused<V>(V);
 
@@ -71,7 +71,7 @@ fn animated_dialog(label: &str) -> Dialog {
     ))
 }
 
-// picks a dot frame based on current time — no state needed
+// picks a dot frame based on current time, no state needed
 fn dot_frame() -> &'static str {
     let ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -260,9 +260,8 @@ fn on_refresh(s: &mut Cursive) {
         s.call_on_name(
             "output-scroll",
             |v: &mut ScrollView<NamedView<TextView>>| {
-                if v.is_at_bottom() {
-                    let _ = v.set_scroll_strategy(ScrollStrategy::StickToBottom);
-                }
+                // output always scrolls to the bottom on new content
+                let _ = v.scroll_to_bottom();
             },
         );
     }
@@ -273,6 +272,9 @@ fn on_refresh(s: &mut Cursive) {
             }
         });
         s.call_on_name("log-scroll", |v: &mut ScrollView<NamedView<TextView>>| {
+            // log only scrolls to the bottom is we're already there
+            // this way a user can scroll up while logs are still flowing in
+            // then go back to the bottom when thye're done and it'll snap to the latest logs again
             if v.is_at_bottom() {
                 let _ = v.set_scroll_strategy(ScrollStrategy::StickToBottom);
             }

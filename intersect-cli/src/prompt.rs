@@ -45,38 +45,42 @@ impl Prompt for CursivePrompt {
         let fc_cancel = self.force_capture.clone();
 
         self.force_capture.store(false, Ordering::Relaxed);
-        if self.cb_sink.send(Box::new(move |s: &mut Cursive| {
-            let dialog = Dialog::new()
-                .title(msg)
-                .content(PaddedView::lrtb(
-                    1,
-                    1,
-                    1,
-                    0,
-                    LinearLayout::vertical()
-                        .child(TextView::new("enter password:"))
-                        .child(EditView::new().secret().with_name("prompt-input")),
-                ))
-                .button("ok", move |s| {
-                    let pw = s
-                        .call_on_name("prompt-input", |v: &mut EditView| v.get_content())
-                        .unwrap();
-                    s.pop_layer();
-                    fc_ok.store(true, Ordering::Relaxed);
-                    if let Some(tx) = tx_ok.lock().unwrap().take() {
-                        let _ = tx.send(Some((*pw).clone()));
-                    }
-                })
-                .button("cancel", move |s| {
-                    s.pop_layer();
-                    fc_cancel.store(true, Ordering::Relaxed);
-                    if let Some(tx) = tx_cancel.lock().unwrap().take() {
-                        let _ = tx.send(None);
-                    }
-                });
-            s.add_layer(dialog);
-        })).is_err() {
-            // tui event loop is gone — restore capture and bail
+        if self
+            .cb_sink
+            .send(Box::new(move |s: &mut Cursive| {
+                let dialog = Dialog::new()
+                    .title(msg)
+                    .content(PaddedView::lrtb(
+                        1,
+                        1,
+                        1,
+                        0,
+                        LinearLayout::vertical()
+                            .child(TextView::new("enter password:"))
+                            .child(EditView::new().secret().with_name("prompt-input")),
+                    ))
+                    .button("ok", move |s| {
+                        let pw = s
+                            .call_on_name("prompt-input", |v: &mut EditView| v.get_content())
+                            .unwrap();
+                        s.pop_layer();
+                        fc_ok.store(true, Ordering::Relaxed);
+                        if let Some(tx) = tx_ok.lock().unwrap().take() {
+                            let _ = tx.send(Some((*pw).clone()));
+                        }
+                    })
+                    .button("cancel", move |s| {
+                        s.pop_layer();
+                        fc_cancel.store(true, Ordering::Relaxed);
+                        if let Some(tx) = tx_cancel.lock().unwrap().take() {
+                            let _ = tx.send(None);
+                        }
+                    });
+                s.add_layer(dialog);
+            }))
+            .is_err()
+        {
+            // tui event loop is gone. restore capture and bail
             self.force_capture.store(true, Ordering::Relaxed);
             return None;
         }

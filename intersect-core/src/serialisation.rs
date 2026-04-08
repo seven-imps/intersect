@@ -221,7 +221,7 @@ pub enum DeserialisationError {
     ValidationError(#[from] ValidationError),
 }
 
-// toml formatting helpers for Display impls — not part of the serialisation system proper
+// toml formatting helpers for Display impls, not part of the serialisation system proper
 pub(crate) fn toml_str(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
