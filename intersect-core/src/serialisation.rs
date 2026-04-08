@@ -220,3 +220,18 @@ pub enum DeserialisationError {
     #[error("model validation error: {0}")]
     ValidationError(#[from] ValidationError),
 }
+
+// toml formatting helpers for Display impls — not part of the serialisation system proper
+pub(crate) fn toml_str(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+pub(crate) fn toml_multiline(value: &str) -> String {
+    if !value.contains("'''") {
+        format!("'''\n{}\n'''", value)
+    } else {
+        // fall back to basic multiline, escaping \ and "
+        let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("\"\"\"\n{}\"\"\"", escaped)
+    }
+}

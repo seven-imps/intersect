@@ -73,26 +73,27 @@ impl AccountView {
 
 impl std::fmt::Display for AccountView {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // name + fingerprint on the first line
-        let name = self
-            .name
-            .as_ref()
-            .map(|n| n.as_ref().to_owned())
-            .unwrap_or_else(|| "(anonymous)".to_owned());
-        writeln!(f, "# {} ({})", name, self.public_key.fingerprint())?;
+        use crate::serialisation::{toml_multiline, toml_str};
 
-        if let Some(home) = &self.home {
-            writeln!(f, "home: {}", home)?;
+        writeln!(f, "+++")?;
+        writeln!(
+            f,
+            "fingerprint = {}",
+            toml_str(&self.public_key.fingerprint())
+        )?;
+        if let Some(name) = &self.name {
+            writeln!(f, "name = {}", toml_str(name.as_ref()))?;
         }
-        if let Some(private) = &self.private
-            && let Some(bookmarks) = private.bookmarks()
-        {
-            writeln!(f, "bookmarks: {}", bookmarks)?;
+        if let Some(home) = &self.home {
+            writeln!(f, "home = {}", toml_str(&home.to_string()))?;
         }
         if let Some(bio) = &self.bio {
-            writeln!(f, "{}", bio.as_ref())?;
+            writeln!(f, "bio = {}", toml_multiline(bio.as_ref()))?;
         }
-        Ok(())
+        if let Some(bookmarks) = self.private.as_ref().and_then(|p| p.bookmarks()) {
+            writeln!(f, "bookmarks = {}", toml_str(&bookmarks.to_string()))?;
+        }
+        write!(f, "+++")
     }
 }
 

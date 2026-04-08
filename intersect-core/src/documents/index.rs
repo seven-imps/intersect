@@ -61,17 +61,20 @@ impl IndexView {
 
 impl std::fmt::Display for IndexView {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "# {}", self.name.as_ref())?;
+        use crate::serialisation::toml_str;
+
+        writeln!(f, "+++")?;
+        writeln!(f, "name = {}", toml_str(self.name.as_ref()))?;
         if let Some(author) = &self.author {
-            writeln!(f, "author: {}", author)?;
+            writeln!(f, "author = {}", toml_str(&author.to_string()))?;
         }
         if let Some(fragment) = &self.fragment {
-            writeln!(f, "fragment: {}", fragment)?;
+            writeln!(f, "fragment = {}", toml_str(&fragment.to_string()))?;
         }
         if let Some(links) = &self.links {
-            writeln!(f, "links: {}", links)?;
+            writeln!(f, "links = {}", toml_str(&links.to_string()))?;
         }
-        Ok(())
+        write!(f, "+++")
     }
 }
 

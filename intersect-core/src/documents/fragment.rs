@@ -40,16 +40,20 @@ impl FragmentView {
 
 impl std::fmt::Display for FragmentView {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.mime.as_ref().starts_with("text/") {
-            // best-effort utf-8 decode for text fragments
-            write!(f, "{}", String::from_utf8_lossy(&self.data))
+        use crate::serialisation::toml_str;
+
+        let is_text = self.mime.as_ref().starts_with("text/");
+
+        writeln!(f, "+++")?;
+        writeln!(f, "mime = {}", toml_str(self.mime.as_ref()))?;
+        writeln!(f, "size = {}", self.data.len())?;
+        writeln!(f, "+++")?;
+
+        if is_text {
+            // best-effort utf-8 decode, content goes after the frontmatter block
+            write!(f, "\n{}", String::from_utf8_lossy(&self.data))
         } else {
-            write!(
-                f,
-                "[{} file, {} bytes]",
-                self.mime.as_ref(),
-                self.data.len()
-            )
+            write!(f, "\n[binary data omitted]")
         }
     }
 }
