@@ -1,23 +1,23 @@
 use crate::cli::Cli;
-use crate::{
-    app::AppState,
-    commands::{self, Output},
-};
+use crate::commands::{self, Output};
 use clap::Parser;
 use cursive::{
     event::{Callback, Event, EventResult, EventTrigger},
-    theme::{BaseColor, BorderStyle, Color, ColorStyle, PaletteColor, PaletteStyle},
+    theme::{ColorStyle, PaletteColor},
     view::{Nameable, Resizable, ScrollStrategy, Scrollable, ViewWrapper},
     views::{
-        Dialog, DummyView, EditView, HideableView, Layer, LinearLayout, NamedView, PaddedView,
-        Panel, ResizedView, ScrollView, TextView,
+        DummyView, EditView, HideableView, Layer, LinearLayout, NamedView, PaddedView, Panel,
+        ResizedView, ScrollView, TextView,
     },
     Cursive, Printer,
 };
-use intersect_core::{ConnectionStrength, NetworkState};
-use std::sync::{atomic::Ordering, Arc, Mutex, OnceLock};
+use std::sync::{atomic::Ordering, Arc, Mutex};
 
-static SPEED_FMT: OnceLock<numfmt::Formatter> = OnceLock::new();
+pub mod dialog;
+mod state;
+pub mod status;
+pub mod theme;
+pub use state::AppState;
 
 // draws its child as if it always has focus, keeps the cursor visible
 // even when a scroll panel temporarily takes focus
@@ -47,71 +47,6 @@ impl<V: cursive::View> ViewWrapper for AlwaysFocused<V> {
 type LogPanel = HideableView<Panel<NamedView<ScrollView<NamedView<TextView>>>>>;
 type LogPadding = HideableView<ResizedView<DummyView>>;
 
-// adds a fullscreen backdrop + dialog as two layers
-pub(crate) fn push_dialog(s: &mut Cursive, dialog: Dialog) {
-    s.add_fullscreen_layer(Layer::new(DummyView.full_screen()));
-    s.add_layer(dialog);
-}
-
-// removes the dialog and its backdrop
-pub(crate) fn pop_dialog(s: &mut Cursive) {
-    s.pop_layer();
-    s.pop_layer();
-}
-
-fn animated_dialog(label: &str) -> Dialog {
-    Dialog::around(PaddedView::lrtb(
-        1,
-        1,
-        1,
-        1,
-        LinearLayout::horizontal()
-            .child(TextView::new(label))
-            .child(TextView::new("   ").with_name("anim-dots")),
-    ))
-}
-
-// picks a dot frame based on current time, no state needed
-fn dot_frame() -> &'static str {
-    let ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    match (ms / 300) % 4 {
-        0 => "   ",
-        1 => ".  ",
-        2 => ".. ",
-        _ => "...",
-    }
-}
-
-fn apply_theme(siv: &mut Cursive) {
-    let mut theme = siv.current_theme().clone();
-    theme.shadow = false;
-    theme.borders = BorderStyle::Simple;
-    use Color::TerminalDefault;
-    use PaletteColor::*;
-    theme.palette[Background] = TerminalDefault;
-    theme.palette[Shadow] = TerminalDefault;
-    theme.palette[View] = TerminalDefault;
-    theme.palette[Primary] = TerminalDefault;
-    // theme.palette[Primary] = Color::Dark(BaseColor::Yellow);
-    theme.palette[Secondary] = TerminalDefault;
-    theme.palette[Tertiary] = TerminalDefault;
-    // theme.palette[TitlePrimary] = TerminalDefault;
-    theme.palette[TitlePrimary] = Color::Dark(BaseColor::Yellow);
-    theme.palette[TitleSecondary] = TerminalDefault;
-    theme.palette[Highlight] = Color::Light(BaseColor::Yellow);
-    theme.palette[HighlightInactive] = Color::Dark(BaseColor::Yellow);
-    theme.palette[HighlightText] = Color::Dark(BaseColor::Black);
-    theme.palette[PaletteStyle::EditableTextCursor] = ColorStyle::new(
-        Color::Dark(BaseColor::Black),
-        Color::Light(BaseColor::White),
-    )
-    .into();
-    siv.set_theme(theme);
-}
-
 pub fn setup(siv: &mut Cursive) {
     let force_capture = siv
         .user_data::<Arc<Mutex<AppState>>>()
@@ -120,7 +55,7 @@ pub fn setup(siv: &mut Cursive) {
         .unwrap()
         .force_capture
         .clone();
-    apply_theme(siv);
+    theme::apply_theme(siv);
     siv.set_fps(20);
     siv.add_global_callback(Event::Refresh, on_refresh);
     siv.clear_global_callbacks(Event::CtrlChar('c'));
@@ -169,11 +104,11 @@ pub fn setup(siv: &mut Cursive) {
         .title("log"),
     )
     .with_name("log-panel")
-    .max_height(10);
+    .max_height(12);
 
     let log_padding = HideableView::new(DummyView.fixed_height(1)).with_name("log-padding");
 
-    let (status_left, status_right) = format_status_bar(None);
+    let (status_left, status_right) = status::format_status_bar(None);
     let header = Layer::with_color(
         PaddedView::lrtb(
             1,
@@ -187,10 +122,7 @@ pub fn setup(siv: &mut Cursive) {
         )
         .full_width()
         .fixed_height(1),
-        ColorStyle::new(
-            Color::Dark(BaseColor::Black),
-            Color::Dark(BaseColor::Yellow),
-        ),
+        ColorStyle::new(PaletteColor::HighlightText, PaletteColor::HighlightInactive),
     );
 
     let layout = LinearLayout::vertical()
@@ -206,11 +138,11 @@ pub fn setup(siv: &mut Cursive) {
             1,
             0,
             LinearLayout::horizontal()
-                .child(TextView::new("> ").style(ColorStyle::front(Color::Dark(BaseColor::Yellow))))
+                .child(TextView::new("> ").style(ColorStyle::front(PaletteColor::TitlePrimary)))
                 .child(AlwaysFocused(
                     EditView::new()
                         .filler(" ")
-                        .style(ColorStyle::front(Color::Dark(BaseColor::Yellow)))
+                        .style(ColorStyle::front(PaletteColor::TitlePrimary))
                         .on_submit(on_submit)
                         .with_name("input")
                         .full_width(),
@@ -222,14 +154,17 @@ pub fn setup(siv: &mut Cursive) {
     siv.call_on_name("log-panel", |v: &mut LogPanel| v.set_visible(false));
     siv.call_on_name("log-padding", |v: &mut LogPadding| v.set_visible(false));
 
-    push_dialog(siv, animated_dialog("initialising").title("intersect"));
+    dialog::push_dialog(
+        siv,
+        dialog::animated_dialog("initialising").title("intersect"),
+    );
 }
 
 fn on_refresh(s: &mut Cursive) {
     let state = s.user_data::<Arc<Mutex<AppState>>>().unwrap().clone();
     let state = state.lock().unwrap();
 
-    let cmd_lines: Vec<_> = std::iter::from_fn(|| state.cmd_rx.try_recv().ok()).collect();
+    let cmd_lines: Vec<_> = std::iter::from_fn(|| state.output_rx.try_recv().ok()).collect();
     let log_lines: Vec<_> = std::iter::from_fn(|| state.stderr_rx.try_recv().ok()).collect();
     let network = state
         .network_state_rx
@@ -237,7 +172,7 @@ fn on_refresh(s: &mut Cursive) {
         .map(|rx| rx.borrow().clone());
     drop(state);
 
-    let (status_left, status_right) = format_status_bar(network.as_ref());
+    let (status_left, status_right) = status::format_status_bar(network.as_ref());
     s.call_on_name("status-left", |view: &mut TextView| {
         view.set_content(status_left)
     });
@@ -252,7 +187,7 @@ fn on_refresh(s: &mut Cursive) {
                     Output::Line(s) => v.append(format!("{s}\n")),
                     Output::Error(s) => v.append(cursive::utils::markup::StyledString::styled(
                         format!("{s}\n"),
-                        ColorStyle::front(Color::Light(BaseColor::Red)),
+                        ColorStyle::front(theme::COLOR_ERROR),
                     )),
                 }
             }
@@ -283,7 +218,7 @@ fn on_refresh(s: &mut Cursive) {
 
     // animate dots in connecting/closing dialog if one is present
     s.call_on_name("anim-dots", |v: &mut TextView| {
-        v.set_content(dot_frame());
+        v.set_content(dialog::dot_frame());
     });
 }
 
@@ -302,13 +237,13 @@ fn on_submit(s: &mut Cursive, text: &str) {
     let state = s.user_data::<Arc<Mutex<AppState>>>().unwrap().clone();
     let state = state.lock().unwrap();
     let intersect = state.intersect.clone();
-    let cmd_tx = state.cmd_tx.clone();
+    let output_tx = state.output_tx.clone();
     drop(state);
 
     let args = match shlex::split(&text) {
         Some(a) => a,
         None => {
-            let _ = cmd_tx.send(Output::Error("invalid quoting".to_string()));
+            output_tx.error("invalid quoting".to_string());
             return;
         }
     };
@@ -316,7 +251,7 @@ fn on_submit(s: &mut Cursive, text: &str) {
     let cli = match Cli::try_parse_from(&args) {
         Ok(c) => c,
         Err(e) => {
-            let _ = cmd_tx.send(Output::Error(format!("{e}")));
+            output_tx.error(format!("{e}"));
             return;
         }
     };
@@ -327,7 +262,7 @@ fn on_submit(s: &mut Cursive, text: &str) {
     }
 
     let Some(intersect) = intersect else {
-        let _ = cmd_tx.send(Output::Error("not connected yet".to_string()));
+        output_tx.error("not connected yet".to_string());
         return;
     };
 
@@ -341,7 +276,7 @@ fn on_submit(s: &mut Cursive, text: &str) {
         force_capture,
     };
     tokio::spawn(async move {
-        commands::execute(cli, intersect, cmd_tx, &prompt).await;
+        commands::execute(cli, intersect, output_tx, &prompt).await;
     });
 }
 
@@ -360,7 +295,10 @@ fn on_ctrl_c(s: &mut Cursive) {
     let intersect = state.intersect.take();
     drop(state);
 
-    push_dialog(s, animated_dialog("shutting down").title("intersect"));
+    dialog::push_dialog(
+        s,
+        dialog::animated_dialog("shutting down").title("intersect"),
+    );
 
     let cb = s.cb_sink().clone();
     tokio::spawn(async move {
@@ -381,52 +319,4 @@ fn toggle_log(s: &mut Cursive) {
     s.call_on_name("log-padding", |v: &mut LogPadding| {
         v.set_visible(!v.is_visible());
     });
-}
-
-// returns (left, right) content for the status bar.
-fn format_status_bar(network: Option<&NetworkState>) -> (String, String) {
-    let prefix = format!("intersect │ v{}", env!("CARGO_PKG_VERSION"));
-
-    let pending = network.map(|state| &state.pending_sync);
-
-    let left = match pending {
-        Some(p) if p.records > 0 => format!("{prefix} │ pending: {} ({})", p.records, p.subkeys),
-        _ => prefix,
-    };
-
-    let network = network
-        .map(format_network_state)
-        .unwrap_or_else(|| "initialising...".into());
-
-    (left, network)
-}
-
-fn format_network_state(state: &NetworkState) -> String {
-    if !state.attached {
-        match state.strength {
-            ConnectionStrength::Attaching => "attaching...",
-            ConnectionStrength::Detaching => "detaching...",
-            ConnectionStrength::Detached => "detached",
-            ConnectionStrength::Weak | ConnectionStrength::Good | ConnectionStrength::Strong => {
-                "disconnected"
-            }
-        }
-        .to_owned()
-    } else {
-        // format with three significant digits so things don't jump around
-        let f = SPEED_FMT.get_or_init(|| "[~3b]B".parse().unwrap());
-        let up_speed = f.fmt_string(state.bps_up);
-        let down_speed = f.fmt_string(state.bps_down);
-
-        let strength = match state.strength {
-            ConnectionStrength::Weak => "■□□",
-            ConnectionStrength::Good => "■■□",
-            ConnectionStrength::Strong => "■■■",
-            ConnectionStrength::Attaching
-            | ConnectionStrength::Detaching
-            | ConnectionStrength::Detached => "□□□",
-        };
-
-        format!("[{strength}] │ ↑ {} │ ↓ {}", up_speed, down_speed)
-    }
 }

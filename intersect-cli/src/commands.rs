@@ -1,6 +1,9 @@
 use std::{
     str::FromStr,
-    sync::{mpsc::SyncSender, Arc, Mutex, OnceLock},
+    sync::{
+        mpsc::{Receiver, SyncSender},
+        Arc, Mutex, OnceLock,
+    },
 };
 
 use anyhow::{anyhow, Context};
@@ -19,25 +22,24 @@ pub enum Output {
 }
 
 // thin wrapper to avoid `let _ = tx.send(Output::...)` noise everywhere
-struct Tx(SyncSender<Output>);
+#[derive(Clone)]
+pub struct Tx(SyncSender<Output>);
 
 impl Tx {
-    fn line(&self, s: impl Into<String>) {
+    pub fn new_channel() -> (Self, Receiver<Output>) {
+        let (cmd_tx, cmd_rx) = std::sync::mpsc::sync_channel::<Output>(64);
+        (Self(cmd_tx), cmd_rx)
+    }
+    pub fn line(&self, s: impl Into<String>) {
         let _ = self.0.send(Output::Line(s.into()));
     }
 
-    fn error(&self, s: impl Into<String>) {
+    pub fn error(&self, s: impl Into<String>) {
         let _ = self.0.send(Output::Error(s.into()));
     }
 }
 
-pub async fn execute(
-    cli: Cli,
-    intersect: Arc<Intersect>,
-    raw_tx: SyncSender<Output>,
-    prompt: &impl Prompt,
-) {
-    let tx = Tx(raw_tx);
+pub async fn execute(cli: Cli, intersect: Arc<Intersect>, tx: Tx, prompt: &impl Prompt) {
     let result = match cli.command {
         Commands::Login { account, secret } => {
             cmd_login(account, secret, &intersect, &tx, prompt).await
@@ -76,26 +78,6 @@ pub async fn execute(
     };
     if let Err(e) = result {
         tx.error(format!("{e:#}"));
-    }
-}
-
-// resolves an OpenedTrace to a usable TypedReference, prompting for a password if needed.
-async fn unlock_trace<D: Document>(
-    opened: OpenedTrace<D>,
-    prompt: &impl Prompt,
-) -> anyhow::Result<TypedReference<D>> {
-    match opened {
-        OpenedTrace::Unlocked(r) => Ok(r),
-        OpenedTrace::Locked(_) => Err(anyhow!(
-            "locked traces (requiring a raw secret) are not yet supported"
-        )),
-        OpenedTrace::Protected(protected_ref) => {
-            let password = prompt
-                .ask("password: ")
-                .await
-                .ok_or_else(|| anyhow!("cancelled"))?;
-            protected_ref.unlock(&password).context("wrong password")
-        }
     }
 }
 
@@ -169,21 +151,6 @@ async fn cmd_create_index(
     let typed_ref = intersect.create_index(name, fragment, links).await?;
     tx.line("index created");
     print_trace(&typed_ref, password.as_deref(), tx)?;
-    Ok(())
-}
-
-fn print_trace<D: Document>(
-    typed_ref: &TypedReference<D>,
-    password: Option<&str>,
-    tx: &Tx,
-) -> anyhow::Result<()> {
-    let (trace, kind) = match password {
-        Some(pw) => (typed_ref.to_protected_trace(pw)?, "trace (protected)"),
-        None => (typed_ref.to_unlocked_trace(), "trace (unlocked)"),
-    };
-    let trace_str = trace.to_string();
-    tx.line(format!("{kind}: {trace_str}"));
-    copy_to_clipboard(&trace_str, tx);
     Ok(())
 }
 
@@ -272,6 +239,43 @@ async fn cmd_open(
         }
         DocumentType::Links => return Err(anyhow!("links documents are not yet supported")),
     }
+    Ok(())
+}
+
+// ==== helpers ====
+
+// resolves an OpenedTrace to a usable TypedReference, prompting for a password if needed.
+async fn unlock_trace<D: Document>(
+    opened: OpenedTrace<D>,
+    prompt: &impl Prompt,
+) -> anyhow::Result<TypedReference<D>> {
+    match opened {
+        OpenedTrace::Unlocked(r) => Ok(r),
+        OpenedTrace::Locked(_) => Err(anyhow!(
+            "locked traces (requiring a raw secret) are not yet supported"
+        )),
+        OpenedTrace::Protected(protected_ref) => {
+            let password = prompt
+                .ask("password: ")
+                .await
+                .ok_or_else(|| anyhow!("cancelled"))?;
+            protected_ref.unlock(&password).context("wrong password")
+        }
+    }
+}
+
+fn print_trace<D: Document>(
+    typed_ref: &TypedReference<D>,
+    password: Option<&str>,
+    tx: &Tx,
+) -> anyhow::Result<()> {
+    let (trace, kind) = match password {
+        Some(pw) => (typed_ref.to_protected_trace(pw)?, "trace (protected)"),
+        None => (typed_ref.to_unlocked_trace(), "trace (unlocked)"),
+    };
+    let trace_str = trace.to_string();
+    tx.line(format!("{kind}: {trace_str}"));
+    copy_to_clipboard(&trace_str, tx);
     Ok(())
 }
 

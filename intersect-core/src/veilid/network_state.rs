@@ -109,7 +109,7 @@ pub fn watch_network_state(
                 if *current == state {
                     return false;
                 }
-                debug!("network state updated: {:?}", state);
+                // debug!("network state updated: {:?}", state);
                 *current = state.clone();
                 true
             });

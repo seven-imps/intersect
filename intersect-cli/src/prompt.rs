@@ -66,7 +66,7 @@ impl Prompt for CursivePrompt {
                         s.pop_layer();
                         fc_ok.store(true, Ordering::Relaxed);
                         if let Some(tx) = tx_ok.lock().unwrap().take() {
-                            let _ = tx.send(Some((*pw).clone()));
+                            let _ = tx.send(Some(pw.to_string()));
                         }
                     })
                     .button("cancel", move |s| {
