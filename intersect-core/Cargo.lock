@@ -1855,7 +1855,7 @@ checksum = "71dd52191aae121e8611f1e8dc3e324dd0dd1dee1e6dd91d10ee07a3cfb4d9d8"
 
 [[package]]
 name = "intersect-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bs58",
  "flume 0.12.0",

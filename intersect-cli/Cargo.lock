@@ -2311,7 +2311,7 @@ dependencies = [
 
 [[package]]
 name = "intersect-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bs58",
  "flume 0.12.0",
