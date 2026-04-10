@@ -13,7 +13,8 @@ use intersect_core::{documents::*, models::*, *};
 
 use crate::{
     cli::{Cli, Commands, CreateCommands},
-    prompt::Prompt,
+    prompt::{unlock_trace, Prompt},
+    ui::panel::{AccountPanel, FragmentPanel, IndexPanel, LinksPanel, OpenPanel},
 };
 
 pub enum Output {
@@ -39,7 +40,13 @@ impl Tx {
     }
 }
 
-pub async fn execute(cli: Cli, intersect: Arc<Intersect>, tx: Tx, prompt: &impl Prompt) {
+pub async fn execute(
+    cli: Cli,
+    intersect: Arc<Intersect>,
+    tx: Tx,
+    panel_tx: SyncSender<OpenPanel>,
+    prompt: &impl Prompt,
+) {
     let result = match cli.command {
         Commands::Login { account, secret } => {
             cmd_login(account, secret, &intersect, &tx, prompt).await
@@ -72,7 +79,7 @@ pub async fn execute(cli: Cli, intersect: Arc<Intersect>, tx: Tx, prompt: &impl 
         Commands::Fetch { trace, output } => {
             cmd_fetch(trace, output, &intersect, &tx, prompt).await
         }
-        Commands::Open { trace } => cmd_open(trace, &intersect, &tx, prompt).await,
+        Commands::Open { trace } => cmd_open(trace, &intersect, &tx, &panel_tx, prompt).await,
         // handled at the ui layer before reaching here
         Commands::Exit => Ok(()),
     };
@@ -208,61 +215,37 @@ async fn cmd_open(
     trace: String,
     intersect: &Intersect,
     tx: &Tx,
+    panel_tx: &SyncSender<OpenPanel>,
     prompt: &impl Prompt,
 ) -> anyhow::Result<()> {
     let trace = Trace::from_str(&trace).context("invalid trace")?;
-    match trace.document_type() {
+    let panel = match trace.document_type() {
         DocumentType::Account => {
             let r = unlock_trace(trace.open::<AccountDocument>()?, prompt).await?;
             let doc = intersect.open(&r).await?;
-            let view = doc
-                .updates
-                .borrow()
-                .as_ref()
-                .map_err(|e| anyhow!("{e}"))?
-                .clone();
-            tx.line(format!("{view}"));
+            OpenPanel::Account(AccountPanel { doc })
         }
         DocumentType::Index => {
             let r = unlock_trace(trace.open::<IndexDocument>()?, prompt).await?;
             let doc = intersect.open(&r).await?;
-            let view = doc
-                .updates
-                .borrow()
-                .as_ref()
-                .map_err(|e| anyhow!("{e}"))?
-                .clone();
-            tx.line(format!("{view}"));
+            let (panel, errors) = IndexPanel::new(doc, intersect, prompt).await;
+            for error in errors {
+                tx.error(error);
+            }
+            OpenPanel::Index(panel)
         }
         DocumentType::Fragment => {
-            return Err(anyhow!("fragments are immutable, use fetch instead"))
+            let r = unlock_trace(trace.open::<FragmentDocument>()?, prompt).await?;
+            let view = intersect.fetch(&r).await?;
+            OpenPanel::Fragment(FragmentPanel { view })
         }
         DocumentType::Links => return Err(anyhow!("links documents are not yet supported")),
-    }
+    };
+    let _ = panel_tx.send(panel);
     Ok(())
 }
 
 // ==== helpers ====
-
-// resolves an OpenedTrace to a usable TypedReference, prompting for a password if needed.
-async fn unlock_trace<D: Document>(
-    opened: OpenedTrace<D>,
-    prompt: &impl Prompt,
-) -> anyhow::Result<TypedReference<D>> {
-    match opened {
-        OpenedTrace::Unlocked(r) => Ok(r),
-        OpenedTrace::Locked(_) => Err(anyhow!(
-            "locked traces (requiring a raw secret) are not yet supported"
-        )),
-        OpenedTrace::Protected(protected_ref) => {
-            let password = prompt
-                .ask("password: ")
-                .await
-                .ok_or_else(|| anyhow!("cancelled"))?;
-            protected_ref.unlock(&password).context("wrong password")
-        }
-    }
-}
 
 fn print_trace<D: Document>(
     typed_ref: &TypedReference<D>,

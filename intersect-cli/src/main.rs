@@ -56,6 +56,7 @@ async fn run_tui(connection_params: ConnectionParams) -> Result<(), ExitCode> {
     let stderr_rx = stderr::capture();
 
     let (tx, rx) = Tx::new_channel();
+    let (panel_tx, panel_rx) = std::sync::mpsc::sync_channel(4);
 
     let mut siv = cursive::default();
     let cb_sink = siv.cb_sink().clone();
@@ -67,6 +68,11 @@ async fn run_tui(connection_params: ConnectionParams) -> Result<(), ExitCode> {
         stderr_rx,
         closing: false,
         force_capture: Arc::new(AtomicBool::new(true)),
+        open_overlays: 0,
+        panel_stack: Vec::new(),
+        panel_tx,
+        panel_rx,
+        next_panel_id: 0,
     }));
     siv.set_user_data(state.clone());
     ui::setup(&mut siv);
@@ -130,7 +136,17 @@ async fn run_command(
     intersect.wait_for_attachment().await;
 
     let (output_tx, output_rx) = Tx::new_channel();
-    commands::execute(cli, intersect.clone(), output_tx, &prompt::StdinPrompt).await;
+    // no panel support in single-command mode. channel is created but never drained
+    // TODO: add some kind of logging here or something to make it clear open isn't supported in cli mode
+    let (panel_tx, _panel_rx) = std::sync::mpsc::sync_channel(4);
+    commands::execute(
+        cli,
+        intersect.clone(),
+        output_tx,
+        panel_tx,
+        &prompt::StdinPrompt,
+    )
+    .await;
 
     let mut errored = false;
     for msg in std::iter::from_fn(|| output_rx.try_recv().ok()) {

@@ -7,13 +7,14 @@ use cursive::{
     view::{Nameable, Resizable, ScrollStrategy, Scrollable, ViewWrapper},
     views::{
         DummyView, EditView, HideableView, Layer, LinearLayout, NamedView, PaddedView, Panel,
-        ResizedView, ScrollView, TextView,
+        ResizedView, ScrollView, StackView, TextView,
     },
     Cursive, Printer,
 };
 use std::sync::{atomic::Ordering, Arc, Mutex};
 
 pub mod dialog;
+pub mod panel;
 mod state;
 pub mod status;
 pub mod theme;
@@ -131,7 +132,11 @@ pub fn setup(siv: &mut Cursive) {
         .child(log_hint)
         .child(log_panel)
         .child(log_padding)
-        .child(Panel::new(output).title("output"))
+        .child({
+            let mut stack = StackView::new();
+            stack.add_fullscreen_layer(Panel::new(output).title("output"));
+            stack.with_name("content-stack")
+        })
         .child(PaddedView::lrtb(
             1,
             1,
@@ -161,9 +166,21 @@ pub fn setup(siv: &mut Cursive) {
 }
 
 fn on_refresh(s: &mut Cursive) {
-    let state = s.user_data::<Arc<Mutex<AppState>>>().unwrap().clone();
-    let state = state.lock().unwrap();
+    let state_arc = s.user_data::<Arc<Mutex<AppState>>>().unwrap().clone();
 
+    // drain panel channel and push any new panels before refreshing existing ones
+    let incoming: Vec<_> = {
+        let state = state_arc.lock().unwrap();
+        std::iter::from_fn(|| state.panel_rx.try_recv().ok()).collect()
+    };
+    for panel in incoming {
+        panel::push(s, &state_arc, panel);
+    }
+
+    // refresh the top panel if it has live updates
+    panel::refresh(s, &state_arc);
+
+    let state = state_arc.lock().unwrap();
     let cmd_lines: Vec<_> = std::iter::from_fn(|| state.output_rx.try_recv().ok()).collect();
     let log_lines: Vec<_> = std::iter::from_fn(|| state.stderr_rx.try_recv().ok()).collect();
     let network = state
@@ -238,6 +255,7 @@ fn on_submit(s: &mut Cursive, text: &str) {
     let state = state.lock().unwrap();
     let intersect = state.intersect.clone();
     let output_tx = state.output_tx.clone();
+    let panel_tx = state.panel_tx.clone();
     drop(state);
 
     let args = match shlex::split(&text) {
@@ -276,7 +294,7 @@ fn on_submit(s: &mut Cursive, text: &str) {
         force_capture,
     };
     tokio::spawn(async move {
-        commands::execute(cli, intersect, output_tx, &prompt).await;
+        commands::execute(cli, intersect, output_tx, panel_tx, &prompt).await;
     });
 }
 

@@ -3,6 +3,9 @@ use std::sync::{
     Arc, Mutex,
 };
 
+use anyhow::{anyhow, Context};
+use intersect_core::{Document, OpenedTrace, TypedReference};
+
 use cursive::{
     view::Nameable,
     views::{Dialog, EditView, LinearLayout, PaddedView, TextView},
@@ -22,6 +25,26 @@ pub struct StdinPrompt;
 impl Prompt for StdinPrompt {
     async fn ask(&self, message: &str) -> Option<String> {
         rpassword::prompt_password(message).ok()
+    }
+}
+
+/// resolves an OpenedTrace to a TypedReference, prompting for a password if needed
+pub(crate) async fn unlock_trace<D: Document>(
+    opened: OpenedTrace<D>,
+    prompt: &impl Prompt,
+) -> anyhow::Result<TypedReference<D>> {
+    match opened {
+        OpenedTrace::Unlocked(r) => Ok(r),
+        OpenedTrace::Locked(_) => Err(anyhow!(
+            "locked traces (requiring a raw secret) are not yet supported"
+        )),
+        OpenedTrace::Protected(protected_ref) => {
+            let password = prompt
+                .ask("password: ")
+                .await
+                .ok_or_else(|| anyhow!("cancelled"))?;
+            protected_ref.unlock(&password).context("wrong password")
+        }
     }
 }
 
