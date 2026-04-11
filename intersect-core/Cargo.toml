@@ -13,8 +13,9 @@ rt-wasm = ["veilid-core/default-wasm", "veilid-tools/rt-wasm-bindgen"]
 [dependencies]
 # serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0.18"
-veilid-core = { version = "0.5.2", default-features = false }
-veilid-tools = { version = "0.5.2", default-features = false }
+# 0.5.3 breaks with keyring manager on linux, pinning to 0.5.2 for now
+veilid-core = { version = "=0.5.2", default-features = false }
+veilid-tools = { version = "=0.5.2", default-features = false }
 # gotta be careful to not pull in features that depend on the tokio runtime
 # else things will break in WASM builds
 tokio = { version = "1.49.0", features = ["sync"] }
@@ -28,7 +29,9 @@ prost = "0.14.3"
 hex = "0.4.3"
 guard-clause = "1.0.0"
 flume = "0.12.0"
-rand = "0.10"
+# matching the veilid version here so we don't get into deep shenanigans
+# with the getrandom flags to enable wasm support for rand
+rand = "0.8"
 bs58 = "0.5.1"
 
 # Dependencies non WASM builds
@@ -37,6 +40,8 @@ bs58 = "0.5.1"
 # Dependencies for WASM builds only
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3.85", features = ["console"] }
+# enable wasm for rand
+getrandom = { version = "^0.2", features = ["js"] }
 
 [dev-dependencies]
 tokio-test = "^0.4"

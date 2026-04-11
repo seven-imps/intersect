@@ -1,8 +1,9 @@
 use std::sync::Arc;
-use std::{collections::HashMap, sync::Mutex, time::Duration};
+use std::{collections::HashMap, sync::Mutex};
 
 use thiserror::Error;
 use tokio::sync::watch;
+use veilid_tools::{sleep::sleep, spawn::spawn_detached};
 use veilid_core::{
     DHTRecordDescriptor, DHTReportScope, DHTSchema, DHTSchemaSMPLMember, KeyPair, RecordKey,
     SetDHTValueOptions,
@@ -16,7 +17,7 @@ use crate::{
     veilid::{CRYPTO_KIND, Connection, ConnectionError, PendingSync, with_crypto},
 };
 
-const PENDING_SYNC_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const PENDING_SYNC_POLL_INTERVAL_MS: u32 = 250;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct OpenRecord {
@@ -58,9 +59,9 @@ impl RecordPool {
         // poll offline subkeys across all open records and broadcast the total.
         // uses a weak ref so the task exits naturally when the pool is dropped.
         let weak = Arc::downgrade(&pool);
-        tokio::spawn(async move {
+        spawn_detached("record_pool_sync_poll", async move {
             loop {
-                tokio::time::sleep(PENDING_SYNC_POLL_INTERVAL).await;
+                sleep(PENDING_SYNC_POLL_INTERVAL_MS).await;
                 let Some(pool) = weak.upgrade() else { break };
                 let keys: Vec<RecordKey> =
                     pool.open_records.lock().unwrap().keys().cloned().collect();
@@ -283,7 +284,7 @@ impl RecordPool {
                 record.key(),
                 report.offline_subkeys().len()
             );
-            tokio::time::sleep(Duration::from_millis(250)).await;
+            sleep(PENDING_SYNC_POLL_INTERVAL_MS).await;
         }
     }
 }

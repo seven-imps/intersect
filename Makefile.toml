@@ -1,0 +1,53 @@
+[config]
+default_to_workspace = false
+
+[tasks.default]
+alias = "ci"
+
+[tasks.ci]
+dependencies = [
+    "check-core",
+    "test",
+    "check-core-wasm",
+    "check-cli",
+    "check-glasses-wasm",
+]
+
+# -- native --
+
+[tasks.check-core]
+command = "cargo"
+args = ["check", "--manifest-path", "intersect-core/Cargo.toml"]
+
+[tasks.check-cli]
+command = "cargo"
+args = ["check", "--manifest-path", "intersect-cli/Cargo.toml"]
+
+[tasks.test]
+command = "cargo"
+args = ["test", "--manifest-path", "intersect-core/Cargo.toml"]
+
+# -- wasm --
+
+[tasks.check-core-wasm]
+command = "cargo"
+args = [
+    "check",
+    "--manifest-path",
+    "intersect-core/Cargo.toml",
+    "--target",
+    "wasm32-unknown-unknown",
+    "--no-default-features",
+    "--features",
+    "rt-wasm",
+]
+
+[tasks.check-glasses-wasm]
+command = "cargo"
+args = [
+    "check",
+    "--manifest-path",
+    "intersect-glasses/Cargo.toml",
+    "--target",
+    "wasm32-unknown-unknown",
+]
