@@ -10,5 +10,6 @@ pub use reference::TypedReference;
 pub use trace::{LockedTypedReference, OpenedTrace, ProtectedTypedReference, WrongDocumentType};
 
 // crate-internal types
+#[allow(unused_imports)] //TODO: remove
 pub(crate) use document::{LARGE_SUBKEYS, MANY_SUBKEYS};
 pub(crate) use reference::Reference;

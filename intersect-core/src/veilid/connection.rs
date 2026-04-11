@@ -57,7 +57,10 @@ pub struct Connection {
 
 impl Connection {
     pub(crate) async fn init(params: ConnectionParams) -> Result<Self, ConnectionError> {
-        // setup_logging();
+        // set up wasm logging so we don't blow up the browser console with internal veilid logs
+        #[cfg(target_arch = "wasm32")]
+        setup_wasm_logging();
+
         // set up the veilid event handler chain
         let update_handlers = Arc::new(Mutex::new(HandlerChain::new()));
         let update_source = Arc::new(UpdateDispatch::new(update_handlers.clone()));
@@ -174,38 +177,31 @@ pub enum ConnectionError {
     NoRoutingContext,
 }
 
-// // #[cfg(target_arch = "wasm32")]
-// pub fn setup_wasm_logging() {
-//     // Set up subscriber and layers
-//     let subscriber = Registry::default();
-//     let mut layers = Vec::new();
+#[cfg(target_arch = "wasm32")]
+pub fn setup_wasm_logging() {
+    use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
+    use tracing_wasm::{ConsoleConfig, WASMLayer, WASMLayerConfigBuilder};
+    use veilid_core::VeilidLayerFilterConfig;
 
-//     let ignore_list: Vec<String> = vec!["-veild_api", "-dht", "-fanout", "-network_result"]
-//         .into_iter()
-//         .map(|s| s.to_owned())
-//         .collect();
+    // set info as the global level, then silence the noisy internal facilities
+    let filter_config = VeilidLayerFilterConfig::new()
+        .try_with_directives_string("info,veilid_api=off,dht=off,fanout=off,network_result=off")
+        .expect("invalid log directives");
+    let filter = veilid_core::VeilidLayerFilter::new_with_config(filter_config);
 
-//     let log_level = VeilidConfigLogLevel::Info;
+    let wasm_layer = WASMLayer::new(
+        WASMLayerConfigBuilder::new()
+            .set_report_logs_in_timings(true)
+            .set_console_config(ConsoleConfig::ReportWithConsoleColor)
+            .build(),
+    )
+    .with_filter(filter.clone());
 
-//     // Performance logger
-//     let filter = veilid_core::VeilidLayerFilter::new(log_level, &ignore_list);
-//     let layer = WASMLayer::new(
-//         WASMLayerConfigBuilder::new()
-//             .set_report_logs_in_timings(true)
-//             .set_console_config(ConsoleConfig::ReportWithConsoleColor)
-//             .build(),
-//     )
-//     .with_filter(filter.clone());
-//     layers.push(layer.boxed());
+    let api_layer = veilid_core::ApiTracingLayer::init().with_filter(filter);
 
-//     // API logger
-//     let filter = veilid_core::VeilidLayerFilter::new(log_level, &ignore_list);
-//     let layer = veilid_core::ApiTracingLayer::init().with_filter(filter.clone());
-//     layers.push(layer.boxed());
-
-//     let subscriber = subscriber.with(layers);
-//     subscriber
-//         .try_init()
-//         .map_err(|e| format!("failed to initialize logging: {}", e))
-//         .expect("failed to initalize WASM platform");
-// }
+    tracing_subscriber::Registry::default()
+        .with(wasm_layer)
+        .with(api_layer)
+        .try_init()
+        .expect("failed to initialise wasm logging");
+}

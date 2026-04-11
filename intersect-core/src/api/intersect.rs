@@ -22,6 +22,8 @@ use crate::{
     },
 };
 
+// derive Clone for Intersect. everything inside of it is already Arc internally or explicitly
+#[derive(Clone)]
 pub struct Intersect {
     connection: Connection,
     pool: Arc<RecordPool>,

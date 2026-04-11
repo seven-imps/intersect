@@ -86,6 +86,7 @@ type CoordinatorSender<D> = Arc<watch::Sender<Result<<D as Document>::View, Docu
 // (using type_name as opposed to TypeId to avoid a 'static bound on D bubling up all the way to the intersect api)
 type CoordinatorMap = Arc<Mutex<HashMap<(RecordKey, &'static str), Box<dyn Any + Send + Sync>>>>;
 
+#[derive(Clone)]
 pub struct WatchCoordinators {
     inner: CoordinatorMap,
 }
@@ -204,6 +205,6 @@ async fn coordinator_task<D: Document>(
 
     drop(notify_rx); // make sure to decrement listeners before we check if empty
     if router.deregister_if_empty(typed_ref.reference().record()) {
-        let _ = pool.cancel_watch(&typed_ref.reference()).await;
+        let _ = pool.cancel_watch(typed_ref.reference()).await;
     }
 }

@@ -1,4 +1,7 @@
 #![recursion_limit = "256"]
+// TODO: remove once we've actually used all the things that are unused :p
+// (but for now i don't want noisy builds)
+#![allow(dead_code)]
 
 // internal modules
 mod api;

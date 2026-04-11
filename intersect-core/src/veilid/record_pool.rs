@@ -3,11 +3,11 @@ use std::{collections::HashMap, sync::Mutex};
 
 use thiserror::Error;
 use tokio::sync::watch;
-use veilid_tools::{sleep::sleep, spawn::spawn_detached};
 use veilid_core::{
     DHTRecordDescriptor, DHTReportScope, DHTSchema, DHTSchemaSMPLMember, KeyPair, RecordKey,
     SetDHTValueOptions,
 };
+use veilid_tools::{sleep::sleep, spawn::spawn_detached};
 
 use crate::{
     api::Reference,

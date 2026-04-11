@@ -2,6 +2,7 @@
 name = "intersect-glasses"
 version = "0.2.0"
 edition = "2024"
+rust-version = "1.88.0"
 
 [dependencies]
 intersect-core = { path = "../intersect-core", features = [
@@ -17,7 +18,8 @@ console_log = "1"
 thiserror = "2.0.18"
 futures = "0.3.30"
 anyhow = "1.0.86"
-# lazy-regex = "3.1.0"
+lazy-regex = "3.6.0"
+tokio = { version = "1.49.0", features = ["sync"] }
 comrak = { version = "0.52.0", features = ["shortcodes"] }
 # codee = "0.2.0"
 
