@@ -1,0 +1,138 @@
+@use '../../public/variables' as *;
+
+// don't show the actual input element
+#hamburger-input {
+    display: none;
+}
+
+// basic styling for the nav list
+#hamburger-input~ul {
+    list-style: none;
+    // padding: 1rem;
+    padding: 0;
+    display: flex;
+    gap: 1rem;
+}
+
+#hamburger {
+    display: block;
+    cursor: pointer;
+    height: 2rem;
+    padding: 0.25rem 0;
+
+    &>span {
+        display: block;
+        top: 0;
+        width: 2rem;
+        height: 4px;
+        margin-bottom: 6px;
+        position: relative;
+        z-index: 10;
+        background: var(--primary-hard);
+        box-shadow: 0px 0px 0.25rem var(--primary-hard), inset 0px 0px 0.25rem var(--primary-hard);
+        transition:
+            transform 0.15s ease-in,
+            opacity 0.15s ease-out 0.15s,
+            top 0.15s ease-out 0.15s;
+    }
+
+    &>span:last-child {
+        margin-bottom: 0;
+    }
+
+    &:hover,
+    &:active {
+        &>span {
+            background: var(--primary);
+        }
+    }
+}
+
+// for small screens, style our hamburger menu
+@media (max-width: $breakpoint-m) {
+
+    // hide the nav list if we haven't opened the menu
+    #hamburger-input:not(:checked)~ul {
+        display: none;
+    }
+
+    // if the menu _is_ open, render a fullscreen backdrop
+    // to catch any clicks outside the menu and close it
+    #hamburger-input:checked~label::before {
+        content: '';
+        display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        // compensate for the window edge,
+        // since we're relative to the nav here
+        margin-left: -0.5rem;
+        z-index: 9;
+
+        backdrop-filter: blur(3px);
+        background-color: var(--background-transparent);
+    }
+
+    #hamburger-input:checked~label {
+        &>span {
+            // flip around transition steps
+            transition:
+                top 0.15s ease-in,
+                opacity 0.15s ease-out,
+                transform 0.15s ease-out 0.15s;
+        }
+
+        &>span:nth-child(1) {
+            top: 10px;
+            transform: rotate(-45deg);
+        }
+
+        &>span:nth-child(2) {
+            opacity: 0;
+        }
+
+        &>span:nth-child(3) {
+            top: -10px;
+            transform: rotate(45deg);
+        }
+    }
+
+    #hamburger-input~ul {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 100%;
+        z-index: 10;
+        padding: 1rem;
+        margin-top: 4rem;
+        // margin-top: 50vh;
+        // transform: translate(0%,-50%);
+
+        flex-direction: column;
+        align-items: center;
+
+        background-color: var(--background-soft);
+        border: 1px solid var(--primary-hard);
+        box-shadow: 0px 0px 0.25rem var(--primary-hard), inset 0px 0px 0.25rem var(--primary-hard);
+
+        // make the links full width
+        &>li {
+            width: 100%;
+
+            &>a {
+                width: 100%;
+                text-align: center;
+                margin: 0;
+            }
+        }
+    }
+}
+
+// hide on bigger screens
+@media (min-width: $breakpoint-m) {
+    #hamburger {
+        display: none;
+    }
+}

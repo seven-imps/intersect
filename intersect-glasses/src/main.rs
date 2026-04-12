@@ -1,6 +1,8 @@
 use leptos::prelude::*;
 use leptos_router::components::Router;
 
+mod components;
+mod pages;
 mod router;
 mod shell;
 mod util;
@@ -13,12 +15,12 @@ fn main() {
 
     mount_to_body(|| {
         view! {
-            // router without routes cause we use our own hash router inside
+            // leptos router without routes cause we use our own hash router inside
+            // this just makes sure the reactive location hooks are all set up
             <Router>
-                // intersect shell inside the router so it's always there
-                // and only loaded once
+                // intersect shell inside the router, only loaded once
                 <Shell>
-                    // and then our internal router to render the pages
+                    // and then our internal router to render all the dynamic pages
                     <HashRouter/>
                 </Shell>
             </Router>

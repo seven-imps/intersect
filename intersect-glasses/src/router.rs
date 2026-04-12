@@ -3,6 +3,8 @@ use lazy_regex::{Lazy, Regex, lazy_regex};
 use leptos::prelude::*;
 use leptos_router::hooks::use_location;
 
+use crate::pages::{HomePage, TracePage};
+
 // matches #/<path> or #/<path>?<args>
 pub static ROUTE_REGEX: Lazy<Regex> = lazy_regex!(r"#/(?<path>[^?]*)(\?(?<args>.*))?$");
 
@@ -58,9 +60,8 @@ pub fn HashRouter() -> impl IntoView {
     });
 
     move || match route.get() {
-        // TODO: replace with actual views once we have them
-        AppRoute::Home => view! { "home" }.into_any(),
-        AppRoute::Trace(args) => view! { "trace: " {args} }.into_any(),
+        AppRoute::Home => view! { <HomePage /> }.into_any(),
+        AppRoute::Trace(args) => view! { <TracePage args /> }.into_any(),
         AppRoute::Login => view! { "login" }.into_any(),
         AppRoute::NotFound => view! { "not found" }.into_any(),
     }
