@@ -2394,6 +2394,7 @@ dependencies = [
  "leptos",
  "leptos_router",
  "log",
+ "phosphor-leptos",
  "thiserror 2.0.18",
  "tokio",
  "wasm-bindgen",
@@ -3526,6 +3527,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e57fef6bc5981e38c2ce2d63bfa546861309f875b8a75f092d1d54ae2d64f266"
 dependencies = [
  "siphasher",
+]
+
+[[package]]
+name = "phosphor-leptos"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c65763c7e36d6af027a0b96604ffbae96e904a0dc3b7d3cefae1b43902a694cb"
+dependencies = [
+ "leptos",
 ]
 
 [[package]]

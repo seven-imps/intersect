@@ -9,6 +9,7 @@ mod util;
 
 use router::HashRouter;
 use shell::Shell;
+pub use shell::{use_intersect, use_network_state};
 
 fn main() {
     console_error_panic_hook::set_once();

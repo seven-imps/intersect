@@ -5,7 +5,7 @@ use thiserror::Error;
 use tokio::sync::watch;
 use veilid_core::{
     DHTRecordDescriptor, DHTReportScope, DHTSchema, DHTSchemaSMPLMember, KeyPair, RecordKey,
-    SetDHTValueOptions,
+    SetDHTValueOptions, VeilidAPIError,
 };
 use veilid_tools::{sleep::sleep, spawn::spawn_detached};
 
@@ -107,12 +107,19 @@ impl RecordPool {
         }
 
         // slow path: open the record outside the lock (network call)
-        let descriptor = self
-            .connection
-            .routing_context()?
-            .open_dht_record(reference.record().clone(), None)
-            .await
-            .map_err(|e| RecordError::OpenError(e.to_string()))?;
+        let rc = self.connection.routing_context()?;
+        let descriptor = match rc.open_dht_record(reference.record().clone(), None).await {
+            Ok(desc) => desc,
+            Err(VeilidAPIError::TryAgain { .. }) => {
+                // we're probably not connected yet, wait and try again
+                debug!("record open returned TryAgain, waiting for network and retrying...");
+                self.connection.wait_for_attachment().await;
+                rc.open_dht_record(reference.record().clone(), None)
+                    .await
+                    .map_err(|e| RecordError::OpenError(e.to_string()))?
+            }
+            Err(e) => Err(RecordError::OpenError(e.to_string()))?,
+        };
 
         let record = OpenRecord {
             reference: reference.clone(),

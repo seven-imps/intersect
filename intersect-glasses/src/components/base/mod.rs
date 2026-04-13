@@ -6,3 +6,7 @@ mod collapsible;
 pub use collapsible::*;
 mod text_input;
 pub use text_input::*;
+mod modal;
+pub use modal::*;
+mod form;
+pub use form::*;

@@ -1,0 +1,16 @@
+.form-main {
+    margin-bottom: 1rem;
+
+    &> :first-child {
+        margin-top: 0;
+    }
+
+    &> :last-child {
+        margin-bottom: 0;
+    }
+}
+
+.form-errors {
+    color: var(--error);
+    text-shadow: 0px 0px 0.25rem var(--error-transparent);
+}

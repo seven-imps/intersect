@@ -112,7 +112,8 @@ impl ProtectedSecret {
     pub fn unlock(&self, password: &str) -> Result<SharedSecret, AccessError> {
         let secret = self
             .encrypted_secret
-            .decrypt_with_password(password, &self.salt)?;
+            .decrypt_with_password(password, &self.salt)
+            .map_err(|_| AccessError::WrongPassword)?;
         Ok(secret)
     }
 }
@@ -149,7 +150,7 @@ impl_v0_proto_conversions! {ProtectedSecret}
 #[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum AccessError {
-    #[error("wrong password")]
+    #[error("incorrect password")]
     WrongPassword,
 
     #[error("encryption error: {0}")]

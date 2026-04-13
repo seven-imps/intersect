@@ -3,13 +3,15 @@
 @use '../src/components/base/text_input';
 @use '../src/components/base/link';
 @use '../src/components/base/collapsible';
-// @use '../src/components/base/modal';
+@use '../src/components/base/modal';
+@use '../src/components/base/form';
 // @use '../src/components/base/selectable';
 
 // higher level components
 @use '../src/components/nav';
+@use '../src/components/note';
+@use '../src/components/fragment';
 // @use '../src/components/links';
-// @use '../src/components/form';
 // @use '../src/components/status';
 // @use '../src/components/share_trace';
 // @use '../src/components/login';
