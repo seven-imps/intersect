@@ -14,6 +14,9 @@ pub use shell::{use_intersect, use_network_state};
 fn main() {
     console_error_panic_hook::set_once();
 
+    // clear the static loading message from index.html
+    let _ = document().body().map(|b| b.set_inner_html(""));
+
     mount_to_body(|| {
         view! {
             // leptos router without routes cause we use our own hash router inside
