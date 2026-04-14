@@ -3,6 +3,7 @@ use leptos::prelude::*;
 
 use crate::{
     components::{Nav, base::PageLink},
+    router::AppRoute,
     util::watch_to_signal,
 };
 
@@ -63,10 +64,10 @@ pub fn Shell(children: ChildrenFn) -> impl IntoView {
 
     view! {
         <header id="header">
-            <h1><PageLink page="" text="./intersect/"/></h1>
+            <h1><PageLink route=AppRoute::Home text="./intersect/"/></h1>
             <Nav>
-                <li><PageLink page="post" text="new post"/></li>
-                <li><PageLink page="account" text={ move || if is_logged_in { "account" } else { "log in" } }/></li>
+                <li><PageLink route=AppRoute::NewPost text="new post"/></li>
+                <li><PageLink route=AppRoute::Account text={ move || if is_logged_in { "account" } else { "log in" } }/></li>
             </Nav>
         </header>
 

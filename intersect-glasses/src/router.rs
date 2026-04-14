@@ -15,15 +15,38 @@ pub enum AppRoute {
     Home,
     Trace(String),
     Login,
+    NewPost,
+    Account,
     NotFound,
 }
 
-fn parse_route(path: &str, args: String) -> AppRoute {
-    match path {
-        "" | "home" => AppRoute::Home,
-        "trace" => AppRoute::Trace(args),
-        "login" => AppRoute::Login,
-        _ => AppRoute::NotFound,
+impl AppRoute {
+    /// parse a route from a path and args string.
+    /// strips a leading "#/" if present, so callers can pass either form.
+    pub fn parse(path: &str, args: String) -> Self {
+        let path = path.strip_prefix("#/").unwrap_or(path);
+        match path {
+            "" | "home" => AppRoute::Home,
+            "trace" => AppRoute::Trace(args),
+            "login" => AppRoute::Login,
+            "new" => AppRoute::NewPost,
+            "account" => AppRoute::Account,
+            _ => AppRoute::NotFound,
+        }
+    }
+
+    /// route to url mapping
+    /// if `absolute` is true, prefixes with "#/" for use in href attributes.
+    pub fn href(&self, absolute: bool) -> String {
+        let path = match self {
+            AppRoute::Home => "".to_string(),
+            AppRoute::Trace(key) => format!("trace?{key}"),
+            AppRoute::Login => "login".to_string(),
+            AppRoute::NewPost => "new".to_string(),
+            AppRoute::Account => "account".to_string(),
+            AppRoute::NotFound => "nothing".to_string(),
+        };
+        if absolute { format!("#/{path}") } else { path }
     }
 }
 
@@ -54,7 +77,7 @@ pub fn HashRouter() -> impl IntoView {
             state_str
         };
 
-        let route = parse_route(&path, args);
+        let route = AppRoute::parse(&path, args);
         log!("route: {:?}", route);
         route
     });
@@ -62,7 +85,10 @@ pub fn HashRouter() -> impl IntoView {
     move || match route.get() {
         AppRoute::Home => view! { <HomePage /> }.into_any(),
         AppRoute::Trace(args) => view! { <TracePage args /> }.into_any(),
+        // TODO: replace these stubs
         AppRoute::Login => view! { "login" }.into_any(),
+        AppRoute::NewPost => view! { "new post" }.into_any(),
         AppRoute::NotFound => view! { "not found" }.into_any(),
+        AppRoute::Account => view! { "account" }.into_any(),
     }
 }

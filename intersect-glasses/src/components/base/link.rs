@@ -1,15 +1,17 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
 
+use crate::router::AppRoute;
+
 #[component]
 pub fn PageLink(
-    #[prop(into)] page: String,
+    route: AppRoute,
     #[prop(into)] text: TextProp,
     #[prop(into, optional)] title: Option<String>,
     #[prop(into, optional)] class: Option<String>,
 ) -> impl IntoView {
-    let title = title.unwrap_or_else(|| page.clone());
-    let href = format!("#/{}", page);
+    let href = route.href(true);
+    let title = title.unwrap_or_default();
     let class = format!("link {}", class.unwrap_or_default());
 
     view! {
