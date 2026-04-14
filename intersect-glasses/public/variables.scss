@@ -57,3 +57,26 @@ $main-font: $monospace-font;
     outline: 1px solid var(--primary);
     box-shadow: 0 0 .25rem var(--primary-hard), inset 0 0 .25rem var(--primary-hard);
 }
+
+@mixin card-chrome {
+    padding: 1rem;
+    background-color: var(--background-soft);
+    border: 1px solid var(--primary-hard);
+    box-shadow: 0px 0px 0.25rem var(--primary-hard),
+        inset 0px 0px 0.25rem var(--primary-hard);
+}
+
+@mixin dialog-backdrop {
+    backdrop-filter: blur(3px);
+    background-color: var(--background-transparent);
+}
+
+@mixin primary-glow-text {
+    color: var(--primary-hard);
+    text-shadow: 0px 0px 0.25rem var(--primary-hard);
+}
+
+@mixin error-glow-text {
+    color: var(--error);
+    text-shadow: 0px 0px 0.25rem var(--error-transparent);
+}

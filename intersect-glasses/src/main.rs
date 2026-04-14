@@ -7,6 +7,7 @@ mod router;
 mod shell;
 mod util;
 
+use components::StatusProvider;
 use router::HashRouter;
 use shell::Shell;
 pub use shell::{use_intersect, use_network_state};
@@ -22,11 +23,13 @@ fn main() {
             // leptos router without routes cause we use our own hash router inside
             // this just makes sure the reactive location hooks are all set up
             <Router>
-                // intersect shell inside the router, only loaded once
-                <Shell>
-                    // and then our internal router to render all the dynamic pages
-                    <HashRouter/>
-                </Shell>
+                <StatusProvider>
+                    // intersect shell inside the router, only loaded once
+                    <Shell>
+                        // and then our internal router to render all the dynamic pages
+                        <HashRouter/>
+                    </Shell>
+                </StatusProvider>
             </Router>
         }
     })
