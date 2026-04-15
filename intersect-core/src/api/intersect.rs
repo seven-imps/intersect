@@ -27,7 +27,12 @@ use crate::{
 pub struct Intersect {
     connection: Connection,
     pool: Arc<RecordPool>,
-    identity: Arc<Mutex<Option<Identity>>>,
+    // keypair for signing.
+    // set to the account keypair if logged in,
+    // otherwise set to an ephemeral anonymous keypair
+    keypair: Arc<Mutex<KeyPair>>,
+    // None = anonymous session, Some = logged in with a persistent account
+    account_tx: Arc<watch::Sender<Option<TypedReference<AccountDocument>>>>,
     watch_router: Arc<WatchRouter>,
     coordinators: WatchCoordinators,
     network_state_rx: watch::Receiver<NetworkState>,
@@ -47,15 +52,19 @@ impl Intersect {
             pool.pending_sync_watch(),
         );
 
-        // only attach aftter setting up all the watchers so we avoid potential missed events or races
+        // only attach after setting up all the watchers so we avoid potential missed events or races
         connection.attach().await?;
+
+        let keypair = with_crypto(|c| c.generate_keypair());
+        let (account_tx, _) = watch::channel(None);
 
         crate::log!("intersect node initialised!");
 
         Ok(Self {
             connection,
             pool,
-            identity: Arc::new(Mutex::new(None)),
+            keypair: Arc::new(Mutex::new(keypair)),
+            account_tx: Arc::new(account_tx),
             watch_router,
             coordinators: WatchCoordinators::new(),
             network_state_rx,
@@ -82,7 +91,7 @@ impl Intersect {
 
     /// reads the public key from the account record,
     /// reconstructs the keypair from the provided secret,
-    /// and validates it before setting identity.
+    /// and validates it before setting the session keypair and account.
     pub async fn login(
         &self,
         account: TypedReference<AccountDocument>,
@@ -104,29 +113,31 @@ impl Intersect {
             return Err(IntersectError::InvalidLogin);
         }
 
-        *self.identity.lock().unwrap() = Some(Identity::Account { keypair, account });
+        // keypair first then account, so any watches of account don't potentially see a stale keypair
+        *self.keypair.lock().unwrap() = keypair;
+        self.account_tx.send_modify(|a| *a = Some(account));
         Ok(())
     }
 
     pub fn logout(&self) {
-        *self.identity.lock().unwrap() = None;
+        // generate a fresh ephemeral keypair to replace the account keypair
+        *self.keypair.lock().unwrap() = with_crypto(|c| c.generate_keypair());
+        self.account_tx.send_modify(|a| *a = None);
         // TODO: cancel all active watch coordinators on logout
     }
 
-    fn identity(&self) -> Option<KeyPair> {
-        self.identity
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|i| i.keypair().clone())
+    fn keypair(&self) -> KeyPair {
+        self.keypair.lock().unwrap().clone()
     }
 
     pub fn account(&self) -> Option<TypedReference<AccountDocument>> {
-        self.identity
-            .lock()
-            .unwrap()
-            .as_ref()
-            .and_then(|i| i.account().cloned())
+        self.account_tx.borrow().clone()
+    }
+
+    /// returns a receiver for the current account state.
+    /// None = anonymous session, Some = logged in with a persistent account.
+    pub fn account_watch(&self) -> watch::Receiver<Option<TypedReference<AccountDocument>>> {
+        self.account_tx.subscribe()
     }
 
     /// one-time document retrieval guaranteed to return the most recent version on the network
@@ -134,9 +145,9 @@ impl Intersect {
         &self,
         typed_ref: &TypedReference<D>,
     ) -> Result<D::View, IntersectError> {
-        let identity = self.identity();
+        let keypair = self.keypair();
         // always force. immutable implementations ignore this and use cache internally anyway
-        D::read(typed_ref, identity.as_ref(), true, &self.pool)
+        D::read(typed_ref, Some(&keypair), true, &self.pool)
             .await
             .map_err(Into::into)
     }
@@ -148,7 +159,7 @@ impl Intersect {
         &self,
         typed_ref: &TypedReference<D>,
     ) -> Result<OpenDocument<D>, IntersectError> {
-        let identity = self.identity();
+        let keypair = self.keypair();
 
         // if a coordinator is already running for this record, subscribe for free
         // the receiver starts with the latest cached view, no read needed
@@ -163,7 +174,7 @@ impl Intersect {
         }
 
         // first open for this record. do the initial read, then create the coordinator
-        let initial = D::read(typed_ref, identity.as_ref(), false, &self.pool).await?;
+        let initial = D::read(typed_ref, Some(&keypair), false, &self.pool).await?;
         self.pool.watch(typed_ref.reference()).await?;
         let notify_rx = self
             .watch_router
@@ -173,7 +184,7 @@ impl Intersect {
             typed_ref.clone(),
             initial,
             Arc::clone(&self.pool),
-            identity,
+            Some(keypair),
             notify_rx,
             Arc::clone(&self.watch_router),
         );
@@ -189,8 +200,8 @@ impl Intersect {
         doc: &OpenDocument<D>,
         update: D::Update,
     ) -> Result<(), IntersectError> {
-        let identity = self.identity().ok_or(IntersectError::InvalidLogin)?;
-        D::update(update, doc, &identity, &self.pool)
+        let keypair = self.keypair();
+        D::update(update, doc, &keypair, &self.pool)
             .await
             .map_err(Into::into)
     }
@@ -203,11 +214,11 @@ impl Intersect {
         fragment: Option<Trace>,
         links: Option<Trace>,
     ) -> Result<TypedReference<IndexDocument>, IntersectError> {
-        let identity = self.identity().ok_or(IntersectError::InvalidLogin)?;
+        let keypair = self.keypair();
         // convert the account reference to an unlocked trace so the reader can follow it
         let author = self.account().map(|r| r.to_unlocked_trace());
         let view = IndexView::new(IndexName::new(name)?, author, fragment, links);
-        Ok(IndexDocument::create(view, &identity, &self.pool).await?)
+        Ok(IndexDocument::create(view, &keypair, &self.pool).await?)
     }
 
     /// upload a fragment with a given mimetype to the network
@@ -216,25 +227,14 @@ impl Intersect {
         data: Vec<u8>,
         mime: FragmentMime,
     ) -> Result<TypedReference<FragmentDocument>, IntersectError> {
-        let identity = self.identity().ok_or(IntersectError::InvalidLogin)?;
+        let keypair = self.keypair();
         let view = FragmentView::new(data, mime);
-        Ok(FragmentDocument::create(view, &identity, &self.pool).await?)
-    }
-
-    /// generates a fresh ephemeral keypair and sets it as the current identity.
-    /// allows signing/creating things without a persistent account record.
-    pub fn login_anonymous(&self) -> Result<(), IntersectError> {
-        if self.account().is_some() {
-            return Err(IntersectError::AlreadyLoggedIn);
-        }
-        let keypair = with_crypto(|c| c.generate_keypair());
-        *self.identity.lock().unwrap() = Some(Identity::Anonymous(keypair));
-        Ok(())
+        Ok(FragmentDocument::create(view, &keypair, &self.pool).await?)
     }
 
     /// creates a new account, generating a keypair internally.
     /// returns the account reference and the secret key (save it to log in later).
-    /// errors if an account (non-anonymous) is already logged in.
+    /// errors if already logged in with a persistent account.
     pub async fn create_account(
         &self,
         name: Option<String>,
@@ -255,10 +255,9 @@ impl Intersect {
         );
         let reference = AccountDocument::create(view, &keypair, &self.pool).await?;
         let secret = AccountSecret::new(keypair.secret());
-        *self.identity.lock().unwrap() = Some(Identity::Account {
-            keypair,
-            account: reference.clone(),
-        });
+        *self.keypair.lock().unwrap() = keypair;
+        self.account_tx
+            .send_modify(|a| *a = Some(reference.clone()));
         Ok((reference, secret))
     }
 }
@@ -292,29 +291,4 @@ pub enum IntersectError {
 
     #[error("already logged in")]
     AlreadyLoggedIn,
-}
-
-#[derive(Clone)]
-enum Identity {
-    Anonymous(KeyPair),
-    Account {
-        keypair: KeyPair,
-        account: TypedReference<AccountDocument>,
-    },
-}
-
-impl Identity {
-    fn keypair(&self) -> &KeyPair {
-        match self {
-            Identity::Anonymous(keypair) => keypair,
-            Identity::Account { keypair, .. } => keypair,
-        }
-    }
-
-    fn account(&self) -> Option<&TypedReference<AccountDocument>> {
-        match self {
-            Identity::Anonymous(_) => None,
-            Identity::Account { account, .. } => Some(account),
-        }
-    }
 }
