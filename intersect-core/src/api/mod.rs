@@ -7,7 +7,7 @@ mod trace;
 pub use document::{Document, DocumentError, MutableDocument, OpenDocument};
 pub use intersect::{Intersect, IntersectError};
 pub use reference::TypedReference;
-pub use trace::{LockedTypedReference, OpenedTrace, ProtectedTypedReference, WrongDocumentType};
+pub use trace::{LockedTypedReference, NotUnlocked, ProtectedTypedReference, TypedTrace, WrongDocumentType};
 
 // crate-internal types
 #[allow(unused_imports)] //TODO: remove

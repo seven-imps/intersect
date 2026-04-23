@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use intersect_core::{Document, OpenedTrace, TypedReference, models::TraceSecret};
+use intersect_core::{Document, TypedTrace, TypedReference, models::TraceSecret};
 use leptos::prelude::*;
 
 use crate::components::base::{Form, Modal, TextInput};
@@ -11,12 +11,12 @@ type UnlockResult<D> = Result<TypedReference<D>, String>;
 /// returns a signal tracking access resolution and a view containing the modal (if needed).
 /// for already-unlocked traces the signal is seeded immediately and the view is empty.
 pub fn use_access<D: Document + 'static>(
-    trace: OpenedTrace<D>,
+    trace: TypedTrace<D>,
 ) -> (ReadSignal<Option<UnlockResult<D>>>, impl IntoView) {
     let reference: RwSignal<Option<Result<TypedReference<D>, String>>> = RwSignal::new(None);
 
     let modal = match trace {
-        OpenedTrace::Unlocked(typed_ref) => {
+        TypedTrace::Unlocked(typed_ref) => {
             reference.set(Some(Ok(typed_ref)));
             ().into_any()
         }
@@ -31,7 +31,7 @@ pub fn use_access<D: Document + 'static>(
 
 #[component]
 pub fn AccessPrompt<D: Document + 'static>(
-    trace: OpenedTrace<D>,
+    trace: TypedTrace<D>,
     on_resolve: Callback<Result<TypedReference<D>, String>>,
 ) -> impl IntoView {
     let show = RwSignal::new(true);
@@ -41,14 +41,14 @@ pub fn AccessPrompt<D: Document + 'static>(
     let validate = Callback::new(move |()| -> Result<TypedReference<D>, anyhow::Error> {
         let raw = input.get_untracked();
         trace.with_value(|o| match o {
-            OpenedTrace::Unlocked(r) => {
+            TypedTrace::Unlocked(r) => {
                 unreachable!("AccessPrompt should not be used with an unlocked trace")
             }
-            OpenedTrace::Locked(locked) => {
+            TypedTrace::Locked(locked) => {
                 let secret = TraceSecret::from_str(&raw)?;
                 Ok(locked.unlock(secret)?)
             }
-            OpenedTrace::Protected(protected) => Ok(protected.unlock(&raw)?),
+            TypedTrace::Protected(protected) => Ok(protected.unlock(&raw)?),
         })
     });
 
@@ -58,11 +58,11 @@ pub fn AccessPrompt<D: Document + 'static>(
     });
 
     let input_label = trace.with_value(|o| match o {
-        OpenedTrace::Unlocked(_) => {
+        TypedTrace::Unlocked(_) => {
             unreachable!("AccessPrompt should not be used with an unlocked trace")
         }
-        OpenedTrace::Locked(_) => "secret key",
-        OpenedTrace::Protected(_) => "password",
+        TypedTrace::Locked(_) => "secret key",
+        TypedTrace::Protected(_) => "password",
     });
 
     let dismiss = move || {

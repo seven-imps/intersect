@@ -4,7 +4,10 @@ use intersect_core::models::Trace;
 use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
 
-use crate::components::base::TextInput;
+use crate::{
+    components::base::TextInput,
+    router::{AppRoute, navigate_to},
+};
 
 #[component]
 pub fn Lookup() -> impl IntoView {
@@ -22,7 +25,7 @@ pub fn Lookup() -> impl IntoView {
     // navigate to the trace page as soon as the input decodes successfully
     Effect::new(move |_| {
         if let Ok(trace) = decoded_trace.get() {
-            navigate(&format!("/#/trace?{}", trace), Default::default());
+            navigate_to(&navigate, AppRoute::Trace(trace.to_string()));
         }
     });
 

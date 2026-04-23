@@ -16,7 +16,7 @@ pub mod models;
 // re-export core api types directly
 pub use api::{
     Document, Intersect, IntersectError, LockedTypedReference, MutableDocument, OpenDocument,
-    OpenedTrace, ProtectedTypedReference, TypedReference, WrongDocumentType,
+    NotUnlocked, ProtectedTypedReference, TypedReference, TypedTrace, WrongDocumentType,
 };
 
 // along with the network / connection setup types from veilid

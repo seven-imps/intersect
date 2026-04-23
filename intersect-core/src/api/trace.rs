@@ -9,7 +9,7 @@ use crate::{
 
 // result of opening a trace, to provide an easier surface for getting from a Trace to a usabler TypedReference
 #[derive(Clone)]
-pub enum OpenedTrace<D: Document> {
+pub enum TypedTrace<D: Document> {
     Unlocked(TypedReference<D>),
     Locked(LockedTypedReference<D>),
     Protected(ProtectedTypedReference<D>),
@@ -47,23 +47,44 @@ impl<D: Document> ProtectedTypedReference<D> {
 #[error("trace document type does not match expected type")]
 pub struct WrongDocumentType;
 
+#[derive(Debug, thiserror::Error)]
+pub enum NotUnlocked {
+    #[error("trace requires a secret key")]
+    Locked,
+    #[error("trace requires a password")]
+    Protected,
+}
+
+impl<D: Document> TypedTrace<D> {
+    /// extracts the inner TypedReference if the trace is unlocked (key already embedded).
+    /// errors if locked or password-protected.
+    pub fn into_unlocked(self) -> Result<TypedReference<D>, NotUnlocked> {
+        match self {
+            TypedTrace::Unlocked(typed_ref) => Ok(typed_ref),
+            TypedTrace::Locked(_) => Err(NotUnlocked::Locked),
+            TypedTrace::Protected(_) => Err(NotUnlocked::Protected),
+        }
+    }
+}
+
 impl Trace {
-    /// opens the trace, verifying the document type and leaving access for the caller to handle.
+    /// type-checks the trace and converts it to a typed TypedTrace<D>,
+    /// leaving access handling to the caller.
     /// errors only if the document type doesn't match.
-    pub fn open<D: Document>(self) -> Result<OpenedTrace<D>, WrongDocumentType> {
+    pub fn into_typed<D: Document>(self) -> Result<TypedTrace<D>, WrongDocumentType> {
         if self.document_type() != &D::DOCUMENT_TYPE {
             return Err(WrongDocumentType);
         }
         Ok(match self.access().clone() {
-            Access::Unlocked { secret } => OpenedTrace::Unlocked(TypedReference::new(
+            Access::Unlocked { secret } => TypedTrace::Unlocked(TypedReference::new(
                 Reference::new(self.record().clone(), secret),
             )),
-            Access::Locked => OpenedTrace::Locked(LockedTypedReference {
+            Access::Locked => TypedTrace::Locked(LockedTypedReference {
                 record: self.record().clone(),
                 _phantom: PhantomData,
             }),
             Access::Protected { protected_secret } => {
-                OpenedTrace::Protected(ProtectedTypedReference {
+                TypedTrace::Protected(ProtectedTypedReference {
                     record: self.record().clone(),
                     protected_secret,
                     _phantom: PhantomData,

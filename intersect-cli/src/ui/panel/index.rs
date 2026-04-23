@@ -56,7 +56,7 @@ impl IndexPanel {
         // fragment is immutable, so just fetch it
         let fragment = if let Some(trace) = view.fragment() {
             let result: anyhow::Result<_> = async {
-                let opened = trace.clone().open::<FragmentDocument>()?;
+                let opened = trace.clone().into_typed::<FragmentDocument>()?;
                 let r = unlock_trace(opened, prompt).await?;
                 Ok(intersect.fetch(&r).await?)
             }
@@ -75,7 +75,7 @@ impl IndexPanel {
         // author is mutable, so open it for ongoing updates
         let author = if let Some(trace) = view.author() {
             let result: anyhow::Result<_> = async {
-                let opened = trace.clone().open::<AccountDocument>()?;
+                let opened = trace.clone().into_typed::<AccountDocument>()?;
                 let r = unlock_trace(opened, prompt).await?;
                 Ok(intersect.open(&r).await?)
             }

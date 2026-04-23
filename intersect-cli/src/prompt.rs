@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use anyhow::{anyhow, Context};
-use intersect_core::{Document, OpenedTrace, TypedReference};
+use intersect_core::{Document, TypedTrace, TypedReference};
 
 use cursive::{
     view::Nameable,
@@ -28,17 +28,17 @@ impl Prompt for StdinPrompt {
     }
 }
 
-/// resolves an OpenedTrace to a TypedReference, prompting for a password if needed
+/// resolves an TypedTrace to a TypedReference, prompting for a password if needed
 pub(crate) async fn unlock_trace<D: Document>(
-    opened: OpenedTrace<D>,
+    opened: TypedTrace<D>,
     prompt: &impl Prompt,
 ) -> anyhow::Result<TypedReference<D>> {
     match opened {
-        OpenedTrace::Unlocked(r) => Ok(r),
-        OpenedTrace::Locked(_) => Err(anyhow!(
+        TypedTrace::Unlocked(r) => Ok(r),
+        TypedTrace::Locked(_) => Err(anyhow!(
             "locked traces (requiring a raw secret) are not yet supported"
         )),
-        OpenedTrace::Protected(protected_ref) => {
+        TypedTrace::Protected(protected_ref) => {
             let password = prompt
                 .ask("password: ")
                 .await

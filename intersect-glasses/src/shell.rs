@@ -6,7 +6,7 @@ use leptos::prelude::*;
 use crate::{
     components::{Nav, base::PageLink, use_loading},
     router::AppRoute,
-    util::{watch_to_new_signal, watch_to_signal},
+    util::watch_to_signal,
 };
 
 /// returns the intersect instance from context.
@@ -50,9 +50,9 @@ pub fn Shell(children: ChildrenFn) -> impl IntoView {
             // set up intersect context
             provide_context::<Intersect>(node.clone());
             // bridge tokio watch channels to leptos signals and provide as context
-            let network = watch_to_new_signal(node.network_watch());
+            let network = watch_to_signal(None, node.network_watch(), |v| v);
             provide_context::<ReadSignal<NetworkState>>(network.read_only());
-            watch_to_signal(account, node.account_watch());
+            watch_to_signal(Some(account), node.account_watch(), |v| v);
         });
 
         init.set(true);

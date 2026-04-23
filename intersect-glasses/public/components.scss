@@ -15,7 +15,8 @@
 @use '../src/components/fragment';
 // @use '../src/components/links';
 // @use '../src/components/share_trace';
-// @use '../src/components/login';
+@use '../src/components/login';
+@use '../src/components/account';
 @use '../src/components/document';
 
 // pages

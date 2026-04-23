@@ -108,7 +108,7 @@ async fn cmd_login(
         .ok_or_else(|| anyhow!("secret required for account login"))?
         .parse::<AccountSecret>()
         .context("invalid secret")?;
-    let typed_ref = unlock_trace(trace.open::<AccountDocument>()?, prompt).await?;
+    let typed_ref = unlock_trace(trace.into_typed::<AccountDocument>()?, prompt).await?;
     intersect.login(typed_ref, secret).await?;
     tx.line("logged in");
     Ok(())
@@ -171,7 +171,7 @@ async fn cmd_fetch(
     let trace = Trace::from_str(&trace).context("invalid trace")?;
     match trace.document_type() {
         DocumentType::Fragment => {
-            let r = unlock_trace(trace.open::<FragmentDocument>()?, prompt).await?;
+            let r = unlock_trace(trace.into_typed::<FragmentDocument>()?, prompt).await?;
             let view = intersect.fetch(&r).await?;
             match output {
                 Some(path) => {
@@ -183,7 +183,7 @@ async fn cmd_fetch(
             }
         }
         DocumentType::Account => {
-            let r = unlock_trace(trace.open::<AccountDocument>()?, prompt).await?;
+            let r = unlock_trace(trace.into_typed::<AccountDocument>()?, prompt).await?;
             let view = intersect.fetch(&r).await?;
             match output {
                 Some(path) => {
@@ -195,7 +195,7 @@ async fn cmd_fetch(
             }
         }
         DocumentType::Index => {
-            let r = unlock_trace(trace.open::<IndexDocument>()?, prompt).await?;
+            let r = unlock_trace(trace.into_typed::<IndexDocument>()?, prompt).await?;
             let view = intersect.fetch(&r).await?;
             match output {
                 Some(path) => {
@@ -221,12 +221,12 @@ async fn cmd_open(
     let trace = Trace::from_str(&trace).context("invalid trace")?;
     let panel = match trace.document_type() {
         DocumentType::Account => {
-            let r = unlock_trace(trace.open::<AccountDocument>()?, prompt).await?;
+            let r = unlock_trace(trace.into_typed::<AccountDocument>()?, prompt).await?;
             let doc = intersect.open(&r).await?;
             OpenPanel::Account(AccountPanel { doc })
         }
         DocumentType::Index => {
-            let r = unlock_trace(trace.open::<IndexDocument>()?, prompt).await?;
+            let r = unlock_trace(trace.into_typed::<IndexDocument>()?, prompt).await?;
             let doc = intersect.open(&r).await?;
             let (panel, errors) = IndexPanel::new(doc, intersect, prompt).await;
             for error in errors {
@@ -235,7 +235,7 @@ async fn cmd_open(
             OpenPanel::Index(panel)
         }
         DocumentType::Fragment => {
-            let r = unlock_trace(trace.open::<FragmentDocument>()?, prompt).await?;
+            let r = unlock_trace(trace.into_typed::<FragmentDocument>()?, prompt).await?;
             let view = intersect.fetch(&r).await?;
             OpenPanel::Fragment(FragmentPanel { view })
         }

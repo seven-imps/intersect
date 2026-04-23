@@ -32,7 +32,7 @@ pub fn TextInput(
         <div class="textinput">
             <label for=id.clone()>{label}</label>
             <input id=id type=input_type autocomplete=autocomplete node_ref=node_ref
-                on:input=move |ev| value.set(event_target_value(&ev))
+                on:input=move |ev| if ev.is_trusted() { value.set(event_target_value(&ev)) }
                 prop:value=value
             />
             {reactive_input_event}

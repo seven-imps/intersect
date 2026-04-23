@@ -1,0 +1,9 @@
+@use '../../public/variables' as *;
+
+.account-view {
+    .account-fingerprint {
+        font-size: 0.8em;
+        color: var(--primary-hard);
+        margin-left: 0.25em;
+    }
+}

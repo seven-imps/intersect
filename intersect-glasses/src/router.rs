@@ -1,9 +1,9 @@
 use intersect_core::log;
 use lazy_regex::{Lazy, Regex, lazy_regex};
 use leptos::prelude::*;
-use leptos_router::hooks::use_location;
+use leptos_router::{NavigateOptions, hooks::use_location};
 
-use crate::pages::{HomePage, TracePage};
+use crate::pages::{AccountPage, HomePage, TracePage};
 
 // matches #/<path> or #/<path>?<args>
 pub static ROUTE_REGEX: Lazy<Regex> = lazy_regex!(r"#/(?<path>[^?]*)(\?(?<args>.*))?$");
@@ -14,7 +14,6 @@ pub static ROUTE_REGEX: Lazy<Regex> = lazy_regex!(r"#/(?<path>[^?]*)(\?(?<args>.
 pub enum AppRoute {
     Home,
     Trace(String),
-    Login,
     NewPost,
     Account,
     NotFound,
@@ -28,7 +27,6 @@ impl AppRoute {
         match path {
             "" | "home" => AppRoute::Home,
             "trace" => AppRoute::Trace(args),
-            "login" => AppRoute::Login,
             "new" => AppRoute::NewPost,
             "account" => AppRoute::Account,
             _ => AppRoute::NotFound,
@@ -41,13 +39,17 @@ impl AppRoute {
         let path = match self {
             AppRoute::Home => "".to_string(),
             AppRoute::Trace(key) => format!("trace?{key}"),
-            AppRoute::Login => "login".to_string(),
             AppRoute::NewPost => "new".to_string(),
             AppRoute::Account => "account".to_string(),
             AppRoute::NotFound => "nothing".to_string(),
         };
         if absolute { format!("#/{path}") } else { path }
     }
+}
+
+/// navigate to an app route
+pub fn navigate_to(navigate: &impl Fn(&str, NavigateOptions), route: AppRoute) {
+    navigate(&format!("/{}", route.href(true)), NavigateOptions::default());
 }
 
 #[component]
@@ -85,10 +87,9 @@ pub fn HashRouter() -> impl IntoView {
     move || match route.get() {
         AppRoute::Home => view! { <HomePage /> }.into_any(),
         AppRoute::Trace(args) => view! { <TracePage args /> }.into_any(),
+        AppRoute::Account => view! { <AccountPage /> }.into_any(),
         // TODO: replace these stubs
-        AppRoute::Login => view! { "login" }.into_any(),
         AppRoute::NewPost => view! { "new post" }.into_any(),
         AppRoute::NotFound => view! { "not found" }.into_any(),
-        AppRoute::Account => view! { "account" }.into_any(),
     }
 }
