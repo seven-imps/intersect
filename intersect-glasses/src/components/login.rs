@@ -105,7 +105,7 @@ fn LoginForm() -> impl IntoView {
             // errors are surfaced as an overlay by loading.run, no need to handle here
             if result.is_ok() {
                 // push a history entry on submit so password managers see a "navigation" and prompt to save
-                navigate_to(&navigate, AppRoute::Account);
+                navigate_to(&navigate, AppRoute::Account, false);
             }
         });
     });
@@ -175,7 +175,7 @@ fn CreateForm() -> impl IntoView {
             // errors are surfaced as an overlay by loading.run, no need to handle here
             if result.is_ok() {
                 // push a history entry on submit so password managers see a "navigation" and prompt to save
-                navigate_to(&navigate, AppRoute::Account);
+                navigate_to(&navigate, AppRoute::Account, false);
             }
         });
     });

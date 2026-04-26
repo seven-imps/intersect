@@ -25,7 +25,7 @@ pub fn Lookup() -> impl IntoView {
     // navigate to the trace page as soon as the input decodes successfully
     Effect::new(move |_| {
         if let Ok(trace) = decoded_trace.get() {
-            navigate_to(&navigate, AppRoute::Trace(trace.to_string()));
+            navigate_to(&navigate, AppRoute::Trace { trace: trace.to_string() }, false);
         }
     });
 

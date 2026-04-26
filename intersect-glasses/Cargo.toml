@@ -19,6 +19,7 @@ thiserror = "2.0.18"
 futures = "0.3.30"
 anyhow = "1.0.86"
 lazy-regex = "3.6.0"
+web-sys = { version = "0.3.85", features = ["UrlSearchParams"] }
 tokio = { version = "1.49.0", features = ["sync"] }
 comrak = { version = "0.52.0", features = ["shortcodes"] }
 
@@ -26,7 +27,7 @@ comrak = { version = "0.52.0", features = ["shortcodes"] }
 [dev-dependencies]
 wasm-bindgen = "^0.2"
 wasm-bindgen-test = "^0.3"
-web-sys = { version = "0.3.85", features = ["Document", "Window"] }
+# web-sys = { version = "0.3.85", features = ["Document", "Window"] }
 
 [profile.release]
 opt-level = 'z'

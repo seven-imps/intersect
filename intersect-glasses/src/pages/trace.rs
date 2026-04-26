@@ -10,8 +10,8 @@ use leptos::prelude::*;
 use crate::components::{FragmentDisplay, use_access};
 
 #[component]
-pub fn TracePage(args: String) -> impl IntoView {
-    let trace = match Trace::from_str(&args) {
+pub fn TracePage(trace: String) -> impl IntoView {
+    let trace = match Trace::from_str(&trace) {
         Ok(trace) => trace,
         Err(e) => return view! { <p>"invalid trace: " {e.to_string()}</p> }.into_any(),
     };
