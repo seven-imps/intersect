@@ -16,6 +16,8 @@ thiserror = "2.0.18"
 # 0.5.3 breaks with keyring manager on linux, pinning to 0.5.2 for now
 veilid-core = { version = "=0.5.2", default-features = false }
 veilid-tools = { version = "=0.5.2", default-features = false }
+# veilid-core = { path = "../../veilid/veilid-core", default-features = false }
+# veilid-tools = { path = "../../veilid/veilid-tools", default-features = false }
 # gotta be careful to not pull in features that depend on the tokio runtime
 # else things will break in WASM builds
 tokio = { version = "1.49.0", features = ["sync"] }

@@ -293,6 +293,13 @@ impl RecordPool {
             );
             sleep(PENDING_SYNC_POLL_INTERVAL_MS).await;
         }
+        // TODO: replace above with this when my PR is in
+        // self.connection
+        //     .routing_context()?
+        //     .flush_dht_record(record.key(), None)
+        //     .await
+        //     .map_err(|e| RecordError::ReadError(e.to_string()))?;
+        // Ok(())
     }
 }
 

@@ -110,7 +110,9 @@ impl Connection {
             program_name: "intersect".into(),
             namespace,
             protected_store: veilid_core::VeilidConfigProtectedStore {
+                // needed for veilid >=0.5.3 cause of issues with keyring manager on linux
                 // allow_insecure_fallback: true,
+                // always_use_insecure_storage: true, // TODO: remove this
                 directory: root_path.join("protected").to_string_lossy().to_string(),
                 ..Default::default()
             },

@@ -99,7 +99,7 @@ async fn cmd_login(
         .as_deref()
         .is_none_or(|a| matches!(a, "anon" | "anonymous"));
     if is_anon {
-        intersect.login_anonymous()?;
+        intersect.logout();
         tx.line("logged in anonymously");
         return Ok(());
     }

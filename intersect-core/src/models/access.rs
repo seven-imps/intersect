@@ -9,7 +9,9 @@ use crate::{
     veilid::with_crypto,
 };
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+// TODO: this shouldn't derive debug.
+// we may want a custom impl here with redacted secrets
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Access {
     Locked,
     Unlocked { secret: SharedSecret },

@@ -17,8 +17,8 @@ use crate::{
 fn private_encryption_key(identity: &KeyPair, reference: &Reference) -> SharedSecret {
     with_crypto(|c| {
         c.derive_shared_secret(
-            identity.ref_bare_secret().bytes(),
-            reference.record().ref_value().ref_key().bytes(),
+            identity.ref_bare_secret().bytes().as_ref(),
+            reference.record().ref_value().ref_key().bytes().as_ref(),
         )
     })
     .expect("derive_shared_secret failed")

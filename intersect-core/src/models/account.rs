@@ -219,7 +219,7 @@ impl_v0_proto_conversions! {AccountPrivate}
 
 /// an account's secret key, wrapped so it can be serialised/deserialised like other models.
 /// this is what `create_account` returns and `login` accepts.
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct AccountSecret(SecretKey);
 
 impl AccountSecret {
