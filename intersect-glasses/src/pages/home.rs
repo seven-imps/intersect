@@ -5,7 +5,7 @@ use crate::components::{Lookup, base::Collapsible};
 #[component]
 pub fn HomePage() -> impl IntoView {
     view! {
-        <p class="home-tagline">"a decentralized and privacy-oriented tool to store and share text"</p>
+        <p class="home-tagline">"a decentralised platform for sharing notes privately"</p>
 
         <Lookup />
 
