@@ -1,161 +1,70 @@
-use anyhow::{anyhow, Result};
-use clap::{Parser, Subcommand};
-use intersect_core::{
-    models::{Fragment, Segment, Trace},
-    FragmentRecord, Identity, IndexRecord,
-};
-use std::{fs, path::PathBuf};
+use std::path::PathBuf;
 
-/// intersect cli
+use clap::{Parser, Subcommand};
+
 #[derive(Debug, Parser)]
-#[command(name = "intersect")]
+// disable_help_flag: clap's default --help calls process::exit, which would kill the tui
+#[command(name = "intersect", no_binary_name = true, disable_help_flag = true)]
 pub struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    pub command: Commands,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    // #[command(arg_required_else_help = true)]
-    // Archive {
-    //     /// files to archive
-    //     #[arg(required = true)]
-    //     paths: Vec<PathBuf>,
-    // },
-
-    // #[command(arg_required_else_help = true)]
-    // Unpack {
-    //     /// file to unpack
-    //     #[arg(required = true)]
-    //     path: PathBuf,
-
-    //     /// shared secret
-    //     #[arg(required = true)]
-    //     secret: SharedSecret,
-    // },
-
-    // #[command(arg_required_else_help = true)]
-    // Validate {
-    //     /// file to validate
-    //     #[arg(required = true)]
-    //     path: PathBuf,
-
-    //     /// shared secret
-    //     #[arg(required = true)]
-    //     secret: SharedSecret,
-    // },
-
-    // #[command(arg_required_else_help = true)]
-    // Publish {
-    //     /// archive file
-    //     #[arg(required = true)]
-    //     path: PathBuf,
-
-    //     /// public key
-    //     #[arg(required = true)]
-    //     public_key: PublicKey,
-
-    //     /// private key
-    //     #[arg(required = true)]
-    //     private_key: CryptoKey,
-    // },
-    #[command(arg_required_else_help = true)]
-    Lookup {
-        /// trace
-        #[arg(required = true, value_parser = Trace::from_str)]
-        trace: Trace,
+    /// Log in: <trace> <secret> for an account. omit args or use 'anon'/'anonymous' for an ephemeral keypair.
+    Login {
+        /// account trace
+        account: Option<String>,
+        /// account secret (required if account is specified)
+        secret: Option<String>,
     },
-    #[command(arg_required_else_help = true)]
-    Post {
-        /// file to post
-        #[arg(required = true)]
-        path: PathBuf,
-        // /// public key
-        // #[arg(required = true)]
-        // public_key: PublicKey,
-
-        // /// private key
-        // #[arg(required = true)]
-        // private_key: CryptoKey,
+    /// Create a new resource
+    Create {
+        #[command(subcommand)]
+        what: CreateCommands,
     },
+    /// Fetch a document by trace. writes to file if output is given, otherwise prints.
+    Fetch {
+        trace: String,
+        output: Option<PathBuf>,
+    },
+    /// Open a document by trace
+    Open { trace: String },
+    /// Initiate graceful shutdown (same as ctrl+c; a second ctrl+c force-exits)
+    Exit,
 }
 
-pub async fn run_command(command: Cli) -> Result<()> {
-    match command.command {
-        // Commands::Archive { paths } => {
-        //     println!("archiving {paths:?} ...");
-        //     let (archive, keypair, secret) = commands::archive(paths, None, None);
-        //     let pk = keypair.key;
-        //     let sk = keypair.secret;
-        //     println!("public key:         {pk}");
-        //     println!("private key:        {sk}");
-        //     println!("file shared secret: {secret}");
-
-        //     let bytes = archive.as_bytes();
-        //     fs::write("archive.isec", bytes).unwrap();
-        //     println!("archive file written to archive.isec");
-        // }
-
-        // Commands::Unpack { path, secret } => {
-        //     println!("unpacking {path:?} ...");
-        //     let archive = commands::unpack(path, &secret);
-        //     for (p, s) in archive.as_section_map() {
-        //         println!("==== {} ====", p);
-        //         match s {
-        //             Section::Index(_index) => todo!(),
-        //             Section::Fragment(frag) => println!("{}", String::from_utf8_lossy(&frag.data)),
-        //         }
-        //         println!("========");
-        //     }
-        // }
-
-        // Commands::Validate { path, secret } => {
-        //     println!("validating {path:?} ...");
-        //     let is_valid = commands::validate(path, &secret);
-        //     println!("archive is {}", if is_valid { "VALID" } else { "INVALID" });
-        // }
-
-        // Commands::Publish {
-        //     path,
-        //     public_key,
-        //     private_key,
-        // } => {
-        //     println!("publishing {path:?} ...");
-        //     commands::publish(path, &public_key, &private_key).await;
-        // }
-        Commands::Lookup { trace } => {
-            println!("downloading trace ...");
-
-            let mut record = IndexRecord::from_trace(&trace).await?;
-            let fragment = record
-                .fetch_fragment()
-                .await?
-                .ok_or(anyhow!("no fragment found"))?;
-
-            let text = String::from_utf8_lossy(&fragment.fragment().data).to_string();
-
-            println!("==== {} ====", record.meta().name());
-            println!();
-            println!("{text}");
-
-            // println!("writing to {path:?}");
-            // fs::write(path, archive.as_bytes()).unwrap();
-
-            Ok(())
-        }
-        Commands::Post { path } => {
-            let identity = Identity::random();
-
-            let file: Vec<u8> = fs::read(path.clone())?;
-            let name = Segment::new(path.file_name().unwrap().to_str().unwrap())?;
-
-            let fragment = FragmentRecord::new(&identity, &Fragment::new(file)).await?;
-            let index = IndexRecord::new(&identity, &name, Some(fragment.link()), &[]).await?;
-
-            let trace = index.trace();
-            println!("trace: {}", trace);
-
-            Ok(())
-        }
-    }
+#[derive(Debug, Subcommand)]
+pub enum CreateCommands {
+    /// Create a new account (generates a fresh keypair)
+    Account {
+        name: Option<String>,
+        bio: Option<String>,
+        /// encrypt the trace with a password before printing/copying
+        #[arg(long)]
+        password: Option<String>,
+    },
+    /// Upload a file as a fragment
+    Fragment {
+        path: PathBuf,
+        #[arg(long, default_value = "*/*")]
+        mime: String,
+        /// encrypt the trace with a password before printing/copying
+        #[arg(long)]
+        password: Option<String>,
+    },
+    /// Create a new index document
+    Index {
+        name: String,
+        /// trace for the content fragment, if any
+        #[arg(long)]
+        fragment: Option<String>,
+        /// trace for the links record, if any
+        #[arg(long)]
+        links: Option<String>,
+        /// encrypt the trace with a password before printing/copying
+        #[arg(long)]
+        password: Option<String>,
+    },
 }

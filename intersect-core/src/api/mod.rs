@@ -1,10 +1,15 @@
-mod domains;
-mod fragment_record;
-mod index_record;
+mod document;
 mod intersect;
-mod links_record;
-pub use domains::*;
-pub use fragment_record::*;
-pub use index_record::*;
-pub use intersect::*;
-pub use links_record::*;
+mod reference;
+mod trace;
+
+// public types (re-exported from lib.rs)
+pub use document::{Document, DocumentError, MutableDocument, OpenDocument};
+pub use intersect::{Intersect, IntersectError};
+pub use reference::TypedReference;
+pub use trace::{LockedTypedReference, NotUnlocked, ProtectedTypedReference, TypedTrace, WrongDocumentType};
+
+// crate-internal types
+#[allow(unused_imports)] //TODO: remove
+pub(crate) use document::{LARGE_SUBKEYS, MANY_SUBKEYS};
+pub(crate) use reference::Reference;

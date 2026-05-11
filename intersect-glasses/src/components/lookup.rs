@@ -1,34 +1,35 @@
-use intersect_core::models::{Trace, TraceError};
-use leptos::*;
+use std::str::FromStr;
 
-use crate::{components::TextInput, pages::trace_link};
+use intersect_core::models::Trace;
+use leptos::prelude::*;
+use leptos_router::hooks::use_navigate;
+
+use crate::{
+    components::base::TextInput,
+    router::{AppRoute, navigate_to},
+};
 
 #[component]
 pub fn Lookup() -> impl IntoView {
-    let trace_field = create_rw_signal("".to_string());
+    let trace_field = RwSignal::new(String::new());
+    let navigate = use_navigate();
 
-    let decoded_trace = move || Trace::from_str(&trace_field.get());
+    let decoded_trace = Memo::new(move |_| Trace::from_str(&trace_field.get()));
+    let error = Memo::new(
+        move |_| match (trace_field.get().is_empty(), decoded_trace.get()) {
+            (false, Err(e)) => Some(e.to_string()),
+            _ => None,
+        },
+    );
 
-    let input_view = move |e: TraceError| {
-        view! {
-            <TextInput value=trace_field id="trace" label="trace: " />
-            <Show
-                when = move || !trace_field.get().is_empty()
-            >
-                <div class="trace">
-                    <p>"error:  " {e.to_string()}</p>
-                </div>
-            </Show>
+    // navigate to the trace page as soon as the input decodes successfully
+    Effect::new(move |_| {
+        if let Ok(trace) = decoded_trace.get() {
+            navigate_to(&navigate, AppRoute::Trace { trace: trace.to_string() }, false);
         }
-        .into_view()
-    };
+    });
 
-    move || match decoded_trace() {
-        Ok(t) => {
-            let navigate = leptos_router::use_navigate();
-            navigate(&trace_link(&t), Default::default());
-            view! {}.into_view()
-        }
-        Err(e) => input_view(e),
+    view! {
+        <TextInput value=trace_field id="trace" label="trace: " error=Signal::from(error) />
     }
 }

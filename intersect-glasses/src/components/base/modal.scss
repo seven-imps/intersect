@@ -1,0 +1,24 @@
+@use '../../../public/variables' as *;
+
+.modal-dialog {
+    // reset native dialog styles — card-body inside handles all of this
+    border: none;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+
+    margin: auto;
+    max-width: 36rem;
+
+    // pretty backdrop
+    &::backdrop {
+        @include dialog-backdrop;
+    }
+}
+
+button.modal-close {
+    margin-top: 2rem;
+    margin-bottom: 0;
+    // de-emphasise the close button a bit
+    background-color: #0000;
+}

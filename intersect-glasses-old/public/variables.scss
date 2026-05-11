@@ -1,0 +1,55 @@
+:root {
+    // to enable light and dark mode
+    // color-scheme: light dark;
+    // disable light mode for now
+    color-scheme: dark;
+
+    // the none is important to not fuck up the hue when blending
+    --black: oklch(0.15 0 none);
+    --white: oklch(0.95 0 none);
+
+    // i swear this color naming scheme makes sense
+    // suffixes:
+    //   soft   -> original + foreground
+    //   softer -> original + foreground + foreground
+    //   hard   -> original + background
+    //   harder -> original + background + background
+    //   transparentish -> original + a little transparent
+    //   transparent    -> original + transparent
+    //   transparenter  -> original + transparent + transparent
+
+    // light and dark colors
+    // (automatically swaps black and white for light/dark mode)
+    --foreground: light-dark(var(--black), var(--white)); 
+    --background: light-dark(var(--white), var(--black));
+    --background-soft: color-mix(in oklch, var(--background), var(--foreground) 10%);
+    --background-transparent: color-mix(in oklch, var(--background), transparent 50%);
+    --background-transparenter: color-mix(in oklch, var(--background), transparent 70%);
+
+    // base colors
+    // --primary: light-dark(oklch(0.5 0.17 70), oklch(0.8 0.17 70));
+    --primary: light-dark(oklch(0.5 0.17 65), oklch(0.8 0.17 65));
+    // --accent: oklch(80% 0.17 305);
+    --error: oklch(0.5 0.17 30);
+    
+    // derived colors
+    --primary-softer: color-mix(in oklch, var(--primary), var(--foreground) 70%);
+    --primary-soft: color-mix(in oklch, var(--primary), var(--foreground) 40%);
+    --primary-hard: color-mix(in oklch, var(--primary), var(--background) 40%);
+    --primary-harder: color-mix(in oklch, var(--primary), var(--background) 70%);
+    --primary-transparent: color-mix(in oklch, var(--primary), transparent 50%);
+    // --primary-transparent-high: color-mix(in oklch, var(--primary), transparent 90%);
+    --error-transparent: color-mix(in oklch, var(--error), transparent 50%);
+
+
+    // size variables
+    --main-width: 48rem;
+}
+
+// can't use css vars in media queries :'(
+$breakpoint-m: 32rem;
+
+// $monospace-font: "Fira Code";
+$monospace-font: "Fira Mono";
+$proportional-font: "Montserrat";
+$main-font: $monospace-font;

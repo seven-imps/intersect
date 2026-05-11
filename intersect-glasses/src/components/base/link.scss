@@ -1,0 +1,9 @@
+.link {
+    &::before {
+        content: '[';
+    }
+
+    &::after {
+        content: ']';
+    }
+}

@@ -1,10 +1,9 @@
-use leptos::*;
+use leptos::prelude::*;
 
-use crate::components::{Collapsible, Lookup};
+use crate::components::{Lookup, base::Collapsible};
 
-/// Default Home Page
 #[component]
-pub fn Home() -> impl IntoView {
+pub fn HomePage() -> impl IntoView {
     view! {
         <p class="home-tagline">"a decentralized and privacy-oriented tool to store and share text"</p>
 
@@ -13,7 +12,6 @@ pub fn Home() -> impl IntoView {
         <div class="home-about">
 
             <Collapsible
-                // summary=move || view! { <h2 class="home-subtitle"> "what is the intersect?" </h2> }
                 summary=move || view! { "what is the intersect?" }
             >
                 <p> "the intersect is a protocol, not a website or server. it has no location or owner." </p>

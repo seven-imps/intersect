@@ -1,192 +1,172 @@
-use std::marker::PhantomData;
-
-use base58::{FromBase58, ToBase58};
-use binrw::binrw;
-use thiserror::Error;
+use veilid_core::{RecordKey, SharedSecret};
 
 use crate::{
-    record::Record,
-    rw_helpers::{BinReadAlloc, BinWriteAlloc},
-    Domain, DomainRecord, IntersectError, RecordType, Secret, VeilidRecordKey,
+    models::{Access, EncryptionError},
+    proto,
+    serialisation::{
+        DeserialisationError, Deserialise, SerialisableV0, SerialisationError, Serialise,
+        impl_string_conversions, impl_v0_proto_conversions,
+    },
 };
 
-use super::Access;
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+pub enum DocumentType {
+    Account,
+    Fragment,
+    Index,
+    Links,
+}
 
-// traces are essentially "links"
-// they're what you would share with someone to show them a page
-
-#[binrw]
-#[brw(big)]
-pub struct Trace<T: RecordType> {
-    #[bw(map = |_| T::MAGIC)]
-    #[br(try_map = |d: u8| (d == T::MAGIC).then_some(PhantomData).ok_or("invalid record type magic"))]
-    _domain: PhantomData<T>,
-    key: VeilidRecordKey,
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct Trace {
+    document_type: DocumentType,
+    record: RecordKey,
     access: Access,
 }
 
-// manual clone impl to avoid the RecordType bound
-impl<T: RecordType> Clone for Trace<T> {
-    fn clone(&self) -> Self {
+impl Trace {
+    pub(crate) fn new(document_type: DocumentType, record: &RecordKey, access: Access) -> Self {
         Self {
-            _domain: PhantomData,
-            key: self.key.clone(),
-            access: self.access.clone(),
-        }
-    }
-}
-
-// manual comparison impls to avoid the RecordType bound
-impl<T: RecordType> PartialEq for Trace<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.key == other.key && self.access == other.access
-    }
-}
-impl<T: RecordType> Eq for Trace<T> {}
-
-// core trace impl
-impl<T: RecordType> Trace<T> {
-    pub(crate) fn new(key: VeilidRecordKey, access: Access) -> Self {
-        Trace {
-            _domain: PhantomData,
-            key,
+            document_type,
+            record: record.clone(),
             access,
         }
     }
 
-    pub fn from_str(trace: &str) -> Result<Self, TraceError> {
-        trace.try_into()
+    pub(crate) fn unlocked(
+        document_type: DocumentType,
+        record: &RecordKey,
+        secret: &SharedSecret,
+    ) -> Self {
+        Self::new(document_type, record, Access::new_unlocked(secret))
     }
 
-    pub async fn try_open<D: Domain<Record = T>>(&self) -> Result<T, IntersectError>
-    where
-        T: DomainRecord<D>,
-    {
-        let Access::Unlocked(secret) = self.access else {
-            return Err(IntersectError::LockedTrace);
-        };
-
-        let record = Record::open(&self.key).await?;
-        Ok(T::from_record(record, &secret).await?)
+    pub(crate) fn locked(document_type: DocumentType, record: &RecordKey) -> Self {
+        Self::new(document_type, record, Access::new_locked())
     }
 
-    pub fn key(&self) -> &VeilidRecordKey {
-        &self.key
+    pub(crate) fn protected(
+        document_type: DocumentType,
+        record: &RecordKey,
+        secret: &SharedSecret,
+        password: &str,
+    ) -> Result<Self, EncryptionError> {
+        let access = Access::new_protected(secret, password)?;
+        Ok(Self::new(document_type, record, access))
     }
 
-    pub fn access(&self) -> &Access {
+    pub fn document_type(&self) -> &DocumentType {
+        &self.document_type
+    }
+
+    pub(crate) fn record(&self) -> &RecordKey {
+        &self.record
+    }
+
+    pub(crate) fn access(&self) -> &Access {
         &self.access
     }
 }
 
-impl<T: RecordType> std::fmt::Debug for Trace<T> {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        // use display impl
-        write!(fmt, "{}", self)
-    }
-}
+impl SerialisableV0 for Trace {
+    type Proto = proto::v0::intersect::Trace;
 
-impl<T: RecordType> std::fmt::Display for Trace<T> {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(fmt, "{}", self.serialise().to_base58())
-    }
-}
-
-impl<T: RecordType> TryFrom<&str> for Trace<T> {
-    type Error = TraceError;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let bytes = value
-            .from_base58()
-            .map_err(|_| TraceError::DeserialisationFailed("invalid base58".to_owned()))?;
-
-        Self::deserialise(bytes.as_slice())
-            .map_err(|e| TraceError::DeserialisationFailed(e.to_string()))
-    }
-}
-
-// this is intentionally not serialisable!!
-// only for internal use in an application
-pub struct UnlockedTrace<T: RecordType> {
-    _domain: PhantomData<T>,
-    key: VeilidRecordKey,
-    secret: Secret,
-}
-
-impl<T: RecordType> UnlockedTrace<T> {
-    pub fn new(key: VeilidRecordKey, secret: Secret) -> Self {
-        Self {
-            _domain: PhantomData,
-            key,
-            secret,
-        }
+    fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
+        Ok(Self::Proto {
+            document_type: match self.document_type {
+                DocumentType::Account => proto::v0::intersect::DocumentType::Account as i32,
+                DocumentType::Fragment => proto::v0::intersect::DocumentType::Fragment as i32,
+                DocumentType::Index => proto::v0::intersect::DocumentType::Index as i32,
+                DocumentType::Links => proto::v0::intersect::DocumentType::Links as i32,
+            },
+            record: Some((&self.record).try_into()?),
+            access: Some(self.access.to_proto()?),
+        })
     }
 
-    pub fn key(&self) -> &VeilidRecordKey {
-        &self.key
-    }
+    fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
+        let document_type_proto = proto::v0::intersect::DocumentType::try_from(proto.document_type)
+            .map_err(|_| DeserialisationError::Failed("invalid document type".to_string()))?;
 
-    pub fn secret(&self) -> &Secret {
-        &self.secret
-    }
-
-    pub async fn open(&self) -> Result<T, IntersectError> {
-        T::open(&self.key, &self.secret).await
-    }
-}
-
-impl<T: RecordType> From<UnlockedTrace<T>> for Trace<T> {
-    fn from(value: UnlockedTrace<T>) -> Self {
-        Trace::new(value.key, Access::Unlocked(value.secret))
-    }
-}
-
-impl<T: RecordType> TryFrom<Trace<T>> for UnlockedTrace<T> {
-    type Error = IntersectError;
-
-    fn try_from(value: Trace<T>) -> Result<Self, Self::Error> {
-        let secret = match value.access() {
-            Access::Locked => Err(IntersectError::Unauthorized)?,
-            Access::Protected(_protected_secret) => Err(IntersectError::Unauthorized)?,
-            Access::Unlocked(secret) => secret,
+        let document_type = match document_type_proto {
+            proto::v0::intersect::DocumentType::Account => DocumentType::Account,
+            proto::v0::intersect::DocumentType::Fragment => DocumentType::Fragment,
+            proto::v0::intersect::DocumentType::Index => DocumentType::Index,
+            proto::v0::intersect::DocumentType::Links => DocumentType::Links,
+            _ => Err(DeserialisationError::Failed(
+                "invalid document type".to_string(),
+            ))?,
         };
-
-        Ok(UnlockedTrace::new(*value.key(), secret.clone()))
+        let record = proto
+            .record
+            .ok_or(DeserialisationError::MissingField("record".to_owned()))?
+            .into();
+        let access = proto
+            .access
+            .ok_or(DeserialisationError::MissingField("access".to_owned()))?
+            .try_into()?;
+        Ok(Self::new(document_type, &record, access))
     }
 }
 
-// manual clone impl to avoid the RecordType bound
-impl<T: RecordType> Clone for UnlockedTrace<T> {
-    fn clone(&self) -> Self {
-        Self {
-            _domain: PhantomData,
-            key: self.key.clone(),
-            secret: self.secret.clone(),
-        }
+impl_v0_proto_conversions! {Trace}
+impl_string_conversions! {Trace}
+
+/// opaque wrapper around a reference's symmetric encryption key.
+/// used to unlock locked traces where the secret is shared out-of-band.
+#[derive(Clone)]
+pub struct TraceSecret(SharedSecret);
+
+impl TraceSecret {
+    pub(crate) fn new(secret: SharedSecret) -> Self {
+        Self(secret)
+    }
+
+    pub(crate) fn inner(&self) -> &SharedSecret {
+        &self.0
     }
 }
 
-impl<T: RecordType> Copy for UnlockedTrace<T> {}
+impl SerialisableV0 for TraceSecret {
+    type Proto = proto::v0::intersect::TraceSecret;
 
-// manual comparison impls to avoid the RecordType bound
-impl<T: RecordType> PartialEq for UnlockedTrace<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.key == other.key && self.secret == other.secret
+    fn to_proto(&self) -> Result<Self::Proto, SerialisationError> {
+        Ok(Self::Proto {
+            secret: Some((&self.0).into()),
+        })
+    }
+
+    fn from_proto(proto: Self::Proto) -> Result<Self, DeserialisationError> {
+        let secret = proto
+            .secret
+            .ok_or(DeserialisationError::MissingField("secret".to_owned()))?
+            .into();
+        Ok(Self(secret))
     }
 }
-impl<T: RecordType> Eq for UnlockedTrace<T> {}
 
-#[derive(Error, Debug, Clone)]
-#[non_exhaustive]
-pub enum TraceError {
-    #[error("missing key")]
-    MissingKey,
-    #[error("invalid key")]
-    InvalidKey,
-    #[error("missing secret")]
-    MissingSecret,
-    #[error("invalid secret")]
-    InvalidSecret,
-    #[error("deserialisation failed: {0}")]
-    DeserialisationFailed(String),
+impl_v0_proto_conversions! {TraceSecret}
+impl_string_conversions! {TraceSecret}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::*;
+
+    #[test]
+    fn string_roundtrip() {
+        // build trace
+        let key = RecordKey::from_str(
+            "VLD0:sX9L_EV3JAy5ozyK875WErKAyFhBy4jZ-6DZajlDr9c:KpS0JtGg9OfJhpsIVCFY8FI9arViozN3kw3duglNkmY",
+        ).unwrap();
+        let trace = Trace::new(DocumentType::Account, &key, Access::Locked);
+
+        // to string ...
+        let trace_string = trace.to_string();
+        // .. and back
+        let deserialised_trace = Trace::from_str(&trace_string).unwrap();
+
+        assert_eq!(trace, deserialised_trace);
+    }
 }

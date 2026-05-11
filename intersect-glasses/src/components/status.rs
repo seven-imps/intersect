@@ -1,146 +1,189 @@
-use std::future::Future;
+use std::{
+    future::Future,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
-use intersect_core::log;
-use leptos::*;
+use anyhow::Error;
+use leptos::{context::Provider, portal::Portal, prelude::*};
 
-use crate::components::Modal;
+use super::base::{Card, CardVariant};
 
-use super::empty_view;
-
-#[derive(Clone, Copy)]
-pub struct StatusContext {
-    status_signal: RwSignal<Option<View>>,
-    error_signal: RwSignal<String>,
+#[derive(Clone)]
+struct LoadingEntry {
+    id: u64,
+    message: String,
 }
 
-impl StatusContext {
-    pub fn new() -> Self {
-        let status_signal = create_rw_signal(None);
-        let error_signal = create_rw_signal("".to_string());
+#[derive(Clone)]
+struct ErrorEntry {
+    id: u64,
+    error: String,
+    dismissable: bool,
+}
 
-        StatusContext {
-            status_signal,
-            error_signal,
+/// app-wide loading and error overlay handler.
+/// use `use_loading()` hook to access (must be inside a `StatusProvider`)
+#[derive(Clone, Copy)]
+pub struct LoadingHandler {
+    loading: RwSignal<Vec<LoadingEntry>>,
+    errors: RwSignal<Vec<ErrorEntry>>,
+    next_id: StoredValue<AtomicU64>,
+}
+
+impl LoadingHandler {
+    fn new() -> Self {
+        LoadingHandler {
+            loading: RwSignal::new(vec![]),
+            errors: RwSignal::new(vec![]),
+            next_id: StoredValue::new(AtomicU64::new(0)),
         }
     }
 
-    pub fn set_status_view<S: FnOnce() -> View + 'static>(&self, status: S) {
-        self.status_signal.set(Some(status()));
-        self.clear_error();
+    fn alloc_id(&self) -> u64 {
+        self.next_id
+            .with_value(|counter| counter.fetch_add(1, Ordering::Relaxed))
     }
 
-    pub fn set_status<S: ToString + 'static>(&self, status: S) {
-        self.set_status_view(move || status.to_string().into_view())
+    fn push_loading(&self, message: &str) -> u64 {
+        let id = self.alloc_id();
+        self.loading.update(|v| {
+            v.push(LoadingEntry {
+                id,
+                message: message.to_owned(),
+            })
+        });
+        id
     }
 
-    pub fn set_error(&self, error: &anyhow::Error) {
-        for e in error.chain() {
-            log!("traceback: {}", e)
-        }
-        self.error_signal.set(error.to_string());
-        self.clear_status();
+    fn pop_loading(&self, id: u64) {
+        self.loading.update(|v| v.retain(|entry| entry.id != id));
     }
 
-    pub fn clear_status(&self) {
-        self.status_signal.set(None)
+    fn push_error(&self, error: &Error, dismissable: bool) {
+        let id = self.alloc_id();
+        self.errors.update(|v| {
+            v.push(ErrorEntry {
+                id,
+                error: error.to_string(),
+                dismissable,
+            })
+        });
     }
 
-    pub fn clear_error(&self) {
-        self.error_signal.set("".to_owned())
+    /// push a dismissable error entry.
+    pub fn error(&self, error: &Error) {
+        self.push_error(error, true);
     }
 
-    pub fn clear(&self) {
-        self.clear_status();
-        self.clear_error();
+    /// push a non-dismissable error entry (for unrecoverable failures)
+    pub fn fatal_error(&self, error: &Error) {
+        self.push_error(error, false);
     }
 
-    pub fn run<F, O>(&self, function: F, message: Option<&str>) -> Result<O, anyhow::Error>
-    where
-        F: FnOnce() -> Result<O, anyhow::Error>,
-    {
-        if let Some(message) = message {
-            let message = message.to_owned();
-            self.set_status(message);
-        }
-        let result = function();
-        match result {
-            Result::Ok(_) => {
-                if message.is_some() {
-                    self.clear()
-                }
-            }
-            Result::Err(ref error) => self.set_error(error),
-        };
-
-        result
+    fn dismiss_errors(&self) {
+        self.errors.update(|v| v.retain(|e| !e.dismissable));
     }
 
-    pub async fn run_async<F, O, Fu>(&self, function: F, message: Option<&str>) -> Result<O, anyhow::Error>
+    /// run an async operation behind a loading indicator.
+    /// any error is surfaced as a dismissable error overlay.
+    pub async fn run<F, O, Fu>(&self, function: F, message: &str) -> Result<O, Error>
     where
         F: FnOnce() -> Fu,
-        Fu: Future<Output = Result<O, anyhow::Error>>,
+        Fu: Future<Output = Result<O, Error>>,
     {
-        if let Some(message) = message {
-            let message = message.to_owned();
-            self.set_status(message);
-        }
+        let id = self.push_loading(message);
         let result = function().await;
-        match result {
-            Result::Ok(_) => {
-                if message.is_some() {
-                    self.clear()
-                }
-            }
-            Result::Err(ref error) => self.set_error(error),
-        };
-
+        self.pop_loading(id);
+        if let Err(ref error) = result {
+            self.error(error);
+        }
         result
     }
+
+    /// run an async operation behind a loading indicator.
+    /// any error is surfaced as a non-dismissable error overlay (for unrecoverable failures)
+    pub async fn run_fatal<F, O, Fu>(&self, function: F, message: &str) -> Result<O, Error>
+    where
+        F: FnOnce() -> Fu,
+        Fu: Future<Output = Result<O, Error>>,
+    {
+        let id = self.push_loading(message);
+        let result = function().await;
+        self.pop_loading(id);
+        if let Err(ref error) = result {
+            self.fatal_error(error);
+        }
+        result
+    }
+
+    /// run an async operation with a loading indicator, without surfacing errors.
+    /// use this when errors are handled elsewhere or don't need to be shown to the user.
+    pub async fn run_silent<F, O, Fu>(&self, function: F, message: &str) -> O
+    where
+        F: FnOnce() -> Fu,
+        Fu: Future<Output = O>,
+    {
+        let id = self.push_loading(message);
+        let result = function().await;
+        self.pop_loading(id);
+        result
+    }
+}
+
+/// returns the loading handler from context.
+/// panics if called outside of a `StatusProvider`.
+pub fn use_loading() -> LoadingHandler {
+    use_context::<LoadingHandler>().expect("use_loading called outside of StatusProvider")
 }
 
 #[component]
-pub fn Status(children: ChildrenFn) -> impl IntoView {
-    let context: StatusContext = StatusContext::new();
+pub fn StatusProvider(children: ChildrenFn) -> impl IntoView {
+    let handler = LoadingHandler::new();
+    let children = StoredValue::new(children);
 
-    let status_view = move || {
-        let status = context.status_signal.get();
-        let error = context.error_signal.get();
-
-        let should_show = status.is_some() || !error.is_empty();
-        let show_error_modal = create_rw_signal(true);
-
-        let error_memo = create_memo(move |_| error.clone());
-        create_effect(move |_| {
-            if !error_memo.get().is_empty() {
-                show_error_modal.set(true);
-            }
-        });
-
-        if let Some(status) = status {
-            view! {
-                <div class="status" aria-expanded= if should_show { "true" } else { "false" }>
-                    <p class="status-text"> {status} </p>
-                </div>
-                <div class="status-backdrop"></div>
-            }
-            .into_view()
-        } else if !error_memo.get().is_empty() {
-            view! {
-                <Modal show=show_error_modal title="An error occurred">
-                    <p class="status-error-text"> {error_memo.get()} </p>
-                </Modal>
-            }
-        } else {
-            empty_view()
-        }
-    };
+    let has_loading = move || !handler.loading.get().is_empty();
+    let has_errors = move || !handler.errors.get().is_empty();
+    let is_active = move || has_loading() || has_errors();
+    let all_dismissable = move || handler.errors.get().iter().all(|e| e.dismissable);
 
     view! {
-        <Provider value=context>
+        <Provider value=handler>
             <Portal>
-                {status_view}
+                <div class="status-overlay" aria-expanded=move || is_active().to_string()>
+                    <div class="status-backdrop"></div>
+                    <div class="status-cards">
+                        <Show when=has_loading>
+                            <Card>
+                                <For
+                                    each=move || handler.loading.get()
+                                    key=|entry| entry.id
+                                    children=|entry| view! {
+                                        <p class="status-message">{entry.message}</p>
+                                    }
+                                />
+                            </Card>
+                        </Show>
+                        <Show when=has_errors>
+                            <Card
+                                variant=CardVariant::Error
+                                title=move || if all_dismissable() { "error" } else { "fatal error" }
+                                on_close=Signal::derive(move ||
+                                    all_dismissable().then(|| Callback::new(move |()| handler.dismiss_errors()))
+                                )
+                            >
+                                <For
+                                    each=move || handler.errors.get()
+                                    key=|entry| entry.id
+                                    children=|entry| view! {
+                                        <p class="status-error-message">{entry.error}</p>
+                                    }
+                                />
+                            </Card>
+                        </Show>
+                    </div>
+                </div>
             </Portal>
-            {children}
+            {move || children.with_value(|c| c())}
         </Provider>
     }
 }

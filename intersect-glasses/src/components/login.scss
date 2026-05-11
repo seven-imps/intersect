@@ -1,0 +1,17 @@
+@use '../../public/variables' as *;
+
+.login-or-new-divider {
+    text-align: center;
+    margin-bottom: 1rem;
+    @include primary-glow-text;
+
+    &::after {
+        // nbsp mdash
+        content: "\00a0\2014";
+    }
+
+    &::before {
+        // mdash nbsp
+        content: "\2014\00a0";
+    }
+}
