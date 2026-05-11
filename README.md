@@ -17,7 +17,7 @@ notes can be public, private, or password-protected and shareable by link. inter
 
 active development. core functionality (accounts, notes, access control) is implemented in `intersect-core`. the web ui (`intersect-glasses`) is currently being rewritten. reading works but posting and editing are still in progress. much to come!
 
-a live instance is at [intersect.blog](http://intersect.blog/).
+a live instance is at [intersect.blog](http://intersect.blog/).  
 (note: due to soon-to-be resolved limitations in veilid this currently only serves over HTTP, not HTTPS.)
 
 ## running locally
