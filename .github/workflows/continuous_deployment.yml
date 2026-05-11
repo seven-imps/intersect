@@ -18,6 +18,9 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      - name: install protoc
+        run: sudo apt-get install -y protobuf-compiler
+
       - name: build site
         working-directory: ./intersect-glasses
         run: trunk build --release
