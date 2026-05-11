@@ -2,7 +2,7 @@
 
 a decentralized and privacy-oriented tool to store and share text
 
-demo version available at: http://intersect.blog/
+demo version available at: http://intersect.blog/  
 (the web ui is still missing some core functionality, as intersect is still undergoing a large rewrite of the alpha version)
 
 
