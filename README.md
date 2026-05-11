@@ -23,17 +23,18 @@ a live instance is at [intersect.blog](http://intersect.blog/).
 ## running locally
 
 1. [install rust](https://www.rust-lang.org/tools/install)
-2. install trunk: `cargo install trunk`
-3. `cd intersect-glasses && trunk serve --release`
-4. open http://localhost:8080/
+2. [install protoc](https://protobuf.dev/installation/)
+3. install trunk: `cargo install trunk`
+4. run intersect: `cd intersect-glasses && trunk serve --release`
+5. open http://localhost:8080/
 
 ### docker
+alternatively, you can use docker to install everything inside of a container automatically:
 
-```bash
-docker-compose up
-```
+1. [install docker](https://docs.docker.com/get-started/introduction/get-docker-desktop/)
+2. run intersect: `docker compose up`
+3. open http://localhost:8080/
 
-open http://localhost:8080/ once the build finishes.
 
 ## structure
 
